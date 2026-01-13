@@ -29,7 +29,7 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-BLACKLIST = ["شتيمة1", "كلمة_ممنوعة", "رابط_خبيث"]
+BLACKLIST = ["كس", "كلمة_ممنوعة", "رابط_خبيث"]
 spam_tracker = {}
 punishment_history = {} # لتتبع عدد مرات السبام للعقوبات المتدرجة
 
@@ -93,7 +93,7 @@ async def on_message(message):
 
     # [ب] الكلمات والروابط
     msg_content = message.content.lower()
-    for word in BLACKLIST: "منيوك"
+    for word in BLACKLIST:
         if word in msg_content:
             await message.delete()
             return
@@ -170,4 +170,5 @@ async def help_me(ctx):
 if __name__ == "__main__":
     keep_alive()
     bot.run(os.environ.get('TOKEN'))
+
 
