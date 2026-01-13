@@ -28,7 +28,6 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-LOG_CHANNEL_ID = 1460594108824555562 
 BLACKLIST = ["شتيمة1", "كلمة_ممنوعة", "رابط_خبيث"]
 
 @bot.event
@@ -36,6 +35,12 @@ async def on_ready():
     print(f'تم تشغيل نظام الحماية بنجاح: {bot.user.name}')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="أمن السيرفر | !help_me"))
 
+# --- وظيفة البحث عن قناة السجلات تلقائياً ---
+def get_log_channel(guild):
+    # يبحث عن قناة نصية باسم 'logs-security' في السيرفر الموجود فيه الرسالة
+    return discord.utils.get(guild.text_channels, name='logs-security')
+
+# --- 3. محرك الحماية التلقائي ---
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild:
@@ -43,37 +48,48 @@ async def on_message(message):
 
     msg_content = message.content.lower()
 
+    # [أ] فحص الكلمات المحظورة
     for word in BLACKLIST:
         if word in msg_content:
             try:
                 await message.delete()
-                log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                # البحث عن قناة السجلات في السيرفر الحالي
+                log_channel = get_log_channel(message.guild)
                 if log_channel:
-                    embed = discord.Embed(title="🚨 حذف تلقائي", color=discord.Color.red(), timestamp=datetime.datetime.utcnow())
-                    embed.add_field(name="العضو:", value=message.author.mention)
+                    embed = discord.Embed(title="🚨 تنبيه أمني", color=discord.Color.red(), timestamp=datetime.datetime.utcnow())
+                    embed.add_field(name="المخالف:", value=message.author.mention)
+                    embed.add_field(name="النوع:", value="كلمة محظورة")
                     embed.add_field(name="الكلمة:", value=word)
                     await log_channel.send(embed=embed)
+                
                 await message.channel.send(f"⚠️ {message.author.mention}، يمنع استخدام كلمات محظورة!", delete_after=5)
             except: pass
             return
 
+    # [ب] منع الروابط لغير الإداريين
     if "http" in msg_content:
         if not message.author.guild_permissions.manage_messages:
             try:
                 await message.delete()
+                log_channel = get_log_channel(message.guild)
+                if log_channel:
+                    embed = discord.Embed(title="🔗 منع رابط", color=discord.Color.orange(), timestamp=datetime.datetime.utcnow())
+                    embed.add_field(name="المخالف:", value=message.author.mention)
+                    await log_channel.send(embed=embed)
                 await message.channel.send(f"❌ {message.author.mention}، نشر الروابط ممنوع!", delete_after=5)
             except: pass
             return
 
     await bot.process_commands(message)
 
+# --- 4. أوامر الإدارة ---
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def clear(ctx, amount: int = 10):
     await ctx.channel.purge(limit=amount + 1)
     await ctx.send(f"✅ تم تنظيف الشات.", delete_after=3)
 
-# --- 3. التشغيل النهائي ---
+# --- 5. التشغيل النهائي ---
 if __name__ == "__main__":
     keep_alive() 
     try:
