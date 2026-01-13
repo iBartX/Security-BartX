@@ -93,7 +93,7 @@ async def on_message(message):
 
     # [ب] الكلمات والروابط
     msg_content = message.content.lower()
-    for word in BLACKLIST:
+    for word in BLACKLIST: "منيوك"
         if word in msg_content:
             await message.delete()
             return
@@ -170,3 +170,4 @@ async def help_me(ctx):
 if __name__ == "__main__":
     keep_alive()
     bot.run(os.environ.get('TOKEN'))
+
