@@ -1,20 +1,86 @@
-// ConsoleApplication1.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
+import os
+import discord
+from discord.ext import commands
+import datetime
+import logging
+from flask import Flask
+from threading import Thread
 
-#include <iostream>
+# --- 1. نظام الاستضافة ---
+app = Flask('')
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
-int main()
-{
-    std::cout << "Hello World!\n";
-}
+@app.route('/')
+def home():
+    return "Security BartX is Online 24/7!"
 
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
+def run():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
+def keep_alive():
+    t = Thread(target=run)
+    t.daemon = True
+    t.start()
+
+# --- 2. إعدادات البوت ---
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+LOG_CHANNEL_ID = 1460594108824555562 
+BLACKLIST = ["شتيمة1", "كلمة_ممنوعة", "رابط_خبيث"]
+
+@bot.event
+async def on_ready():
+    print(f'تم تشغيل نظام الحماية بنجاح: {bot.user.name}')
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="أمن السيرفر | !help_me"))
+
+@bot.event
+async def on_message(message):
+    if message.author.bot or not message.guild:
+        return
+
+    msg_content = message.content.lower()
+
+    for word in BLACKLIST:
+        if word in msg_content:
+            try:
+                await message.delete()
+                log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                if log_channel:
+                    embed = discord.Embed(title="🚨 حذف تلقائي", color=discord.Color.red(), timestamp=datetime.datetime.utcnow())
+                    embed.add_field(name="العضو:", value=message.author.mention)
+                    embed.add_field(name="الكلمة:", value=word)
+                    await log_channel.send(embed=embed)
+                await message.channel.send(f"⚠️ {message.author.mention}، يمنع استخدام كلمات محظورة!", delete_after=5)
+            except: pass
+            return
+
+    if "http" in msg_content:
+        if not message.author.guild_permissions.manage_messages:
+            try:
+                await message.delete()
+                await message.channel.send(f"❌ {message.author.mention}، نشر الروابط ممنوع!", delete_after=5)
+            except: pass
+            return
+
+    await bot.process_commands(message)
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def clear(ctx, amount: int = 10):
+    await ctx.channel.purge(limit=amount + 1)
+    await ctx.send(f"✅ تم تنظيف الشات.", delete_after=3)
+
+# --- 3. التشغيل النهائي ---
+if __name__ == "__main__":
+    keep_alive() 
+    try:
+        token = os.environ.get('TOKEN')
+        if token:
+            bot.run(token)
+        else:
+            print("Error: TOKEN not found!")
+    except Exception as e:
+        print(f"Error: {e}")
