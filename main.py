@@ -6,10 +6,10 @@ import asyncio
 from flask import Flask
 from threading import Thread
 
-# --- 1. نظام الاستضافة (24/7) ---
+# --- 1. نظام الاستضافة لضمان العمل 24/7 ---
 app = Flask('')
 @app.route('/')
-def home(): return "Security BartX Ultimate Shield is ONLINE!"
+def home(): return "Security BartX Ultimate Shield is ONLINE 24/7!"
 
 def run():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
@@ -17,184 +17,206 @@ def run():
 def keep_alive():
     Thread(target=run, daemon=True).start()
 
-# --- 2. إعدادات البوت الأساسية ---
+# --- 2. إعدادات البوت والبيانات ---
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# مخازن البيانات (السبام والعقوبات)
+# مخازن بيانات السبام وتاريخ العقوبات
 spam_tracker = {}
 punishment_history = {}
 
 @bot.event
 async def on_ready():
     print(f"========================================")
-    print(f"✅ تم تشغيل البوت الشامل بنجاح: {bot.user.name}")
-    print(f"🛡️ جميع أنظمة الحماية والسجلات نشطة")
+    print(f"✅ تم تشغيل البوت الشامل: {bot.user.name}")
+    print(f"📡 مراقبة السجلات: نشطة 100%")
+    print(f"🛡️ حماية الاونر والسيادة: مفعلة")
     print(f"========================================")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="أمن السيرفر | !help_me"))
 
-# دالة إرسال السجلات الشاملة لـ logs-security
+# دالة إرسال السجلات الموحدة (Embeds)
 async def send_to_logs(guild, embed):
     log_channel = discord.utils.get(guild.text_channels, name='logs-security')
     if log_channel:
-        try: await log_channel.send(embed=embed)
-        except: pass
+        try:
+            await log_channel.send(embed=embed)
+        except:
+            pass
 
-# --- 3. نظام ANTI-BAN (منع البان العشوائي وفك البان) ---
+# --- 3. نظام حماية "السيادة" (منع إنشاء الرومات لغير الاونر) ---
+@bot.event
+async def on_guild_channel_create(channel):
+    await asyncio.sleep(1.5)
+    async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_create, limit=1):
+        mod = entry.user
+        if mod.id == channel.guild.owner_id or mod.id == bot.user.id:
+            return
+        
+        # حذف الروم فوراً
+        await channel.delete(reason="Anti-Nuke: Sovereignty Protocol (Owner Only)")
+        
+        # سحب كافة الرتب من الفاعل مهما كان منصبه
+        try:
+            await mod.edit(roles=[], reason="Anti-Nuke: Attempted Channel Creation without Permission")
+        except:
+            pass
+
+        emb = discord.Embed(title="🚨 خرق أمني: إنشاء قناة", color=discord.Color.red(), timestamp=datetime.datetime.utcnow())
+        emb.add_field(name="الفاعل (المخالف)", value=f"{mod.mention} ({mod.id})", inline=False)
+        emb.add_field(name="اسم القناة المحذوفة", value=channel.name, inline=True)
+        emb.add_field(name="الإجراء المتخذ", value="تم حذف القناة وسحب كافة الرتب فوراً", inline=True)
+        emb.set_footer(text="نظام حماية سيادة صاحب السيرفر")
+        await send_to_logs(channel.guild, emb)
+
+# --- 4. سجلات مراقبة الرسائل (حذف وتعديل) ---
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot: return
+    emb = discord.Embed(title="🗑️ مراقبة الرسائل: حذف", color=discord.Color.orange(), timestamp=datetime.datetime.utcnow())
+    emb.add_field(name="الكاتب", value=message.author.mention, inline=True)
+    emb.add_field(name="القناة", value=message.channel.mention, inline=True)
+    emb.add_field(name="المحتوى المحذوف", value=message.content or "صورة أو ملف مرفق", inline=False)
+    await send_to_logs(message.guild, emb)
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot or before.content == after.content: return
+    emb = discord.Embed(title="📝 مراقبة الرسائل: تعديل", color=discord.Color.blue(), timestamp=datetime.datetime.utcnow())
+    emb.add_field(name="الكاتب", value=before.author.mention, inline=True)
+    emb.add_field(name="النص قبل التعديل", value=before.content, inline=False)
+    emb.add_field(name="النص بعد التعديل", value=after.content, inline=False)
+    await send_to_logs(before.guild, emb)
+
+# --- 5. سجلات مراقبة الرتب والأعضاء (كاملة) ---
+@bot.event
+async def on_member_update(before, after):
+    if before.roles != after.roles:
+        emb = discord.Embed(title="🎭 سجل تغيير الرتب", color=discord.Color.teal(), timestamp=datetime.datetime.utcnow())
+        emb.add_field(name="العضو المعني", value=after.mention)
+        
+        added = [role.mention for role in after.roles if role not in before.roles]
+        removed = [role.mention for role in before.roles if role not in after.roles]
+        
+        if added: emb.add_field(name="رتب تم منحها ✅", value=", ".join(added), inline=False)
+        if removed: emb.add_field(name="رتب تم سحبها ❌", value=", ".join(removed), inline=False)
+        await send_to_logs(after.guild, emb)
+
+@bot.event
+async def on_guild_role_create(role):
+    async for entry in role.guild.audit_logs(action=discord.AuditLogAction.role_create, limit=1):
+        mod = entry.user
+        emb = discord.Embed(title="✨ سجل الرتب: إنشاء", color=discord.Color.green())
+        emb.add_field(name="الرتبة المنشأة", value=role.name)
+        emb.add_field(name="بواسطة", value=mod.mention)
+        await send_to_logs(role.guild, emb)
+
+# --- 6. حماية Anti-Nuke (بان، ويب هوك، حذف رومات) ---
 @bot.event
 async def on_member_ban(guild, user):
-    await asyncio.sleep(2) # انتظار مزامنة سجلات ديسكورد
+    await asyncio.sleep(2)
     async for entry in guild.audit_logs(action=discord.AuditLogAction.ban, limit=1):
         if entry.target.id == user.id:
             mod = entry.user
             if mod.id == guild.owner_id or mod.id == bot.user.id: return
-
-            # سحب الرتب من المشرف المخالف
-            try: await mod.edit(roles=[], reason="Anti-Nuke: Unauthorized Ban Detect")
+            try: await mod.edit(roles=[], reason="Anti-Nuke: Ban")
             except: pass
-
-            # فك البان عن العضو المظلوم فوراً
-            try: await guild.unban(user, reason="Anti-Nuke: Protection System")
+            try: await guild.unban(user)
             except: pass
-
-            # إرسال سجل للحدث
-            emb = discord.Embed(title="🚨 محاولة بان عشوائي", color=discord.Color.red(), timestamp=datetime.datetime.utcnow())
-            emb.add_field(name="المشرف المخالف", value=f"{mod.mention} ({mod.id})", inline=False)
-            emb.add_field(name="العضو المظلوم", value=f"{user.name}", inline=False)
-            emb.add_field(name="الإجراء", value="تم سحب الرتب وفك البان تلقائياً", inline=False)
+            emb = discord.Embed(title="🚨 منع بان تخريبي", color=discord.Color.red())
+            emb.add_field(name="المشرف", value=mod.mention); emb.add_field(name="الضحية", value=user.name)
             await send_to_logs(guild, emb)
 
-# --- 4. نظام ANTI-WEBHOOK (منع الويب هوك) ---
 @bot.event
 async def on_webhooks_update(channel):
     async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.webhook_create, limit=1):
         mod = entry.user
-        if mod.id == channel.guild.owner_id or mod.id == bot.user.id: return
-        
-        # حذف الويب هوك فوراً ومعاقبة الفاعل
+        if mod.id in [channel.guild.owner_id, bot.user.id]: return
         for wh in await channel.webhooks(): await wh.delete()
-        try: await mod.edit(roles=[], reason="Anti-Nuke: Webhook Creation")
+        try: await mod.edit(roles=[], reason="Anti-Nuke: Webhook")
         except: pass
-
         emb = discord.Embed(title="🚫 منع ويب هوك", color=discord.Color.orange())
         emb.add_field(name="الفاعل", value=mod.mention)
-        emb.add_field(name="القناة", value=channel.mention)
-        emb.add_field(name="النتيجة", value="حذف الويب هوك وسحب الرتب")
         await send_to_logs(channel.guild, emb)
 
-# --- 5. حماية الرومات والرتب ---
-@bot.event
-async def on_guild_channel_delete(channel):
-    async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
-        mod = entry.user
-        if mod.id == channel.guild.owner_id or mod.id == bot.user.id: return
-        try: await mod.edit(roles=[], reason="Anti-Nuke: Channel Delete")
-        except: pass
-        emb = discord.Embed(title="📁 حذف قناة", color=discord.Color.dark_red())
-        emb.add_field(name="الفاعل", value=mod.mention); emb.add_field(name="القناة", value=channel.name)
-        await send_to_logs(channel.guild, emb)
-
-@bot.event
-async def on_guild_role_update(before, after):
-    async for entry in after.guild.audit_logs(action=discord.AuditLogAction.role_update, limit=1):
-        mod = entry.user
-        if mod.id == after.guild.owner_id or mod.id == bot.user.id: return
-        try: await mod.edit(roles=[], reason="Anti-Nuke: Role Manipulation")
-        except: pass
-        emb = discord.Embed(title="🎭 تلاعب بالرتب", color=discord.Color.blue())
-        emb.add_field(name="الفاعل", value=mod.mention); emb.add_field(name="الرتبة", value=after.name)
-        await send_to_logs(after.guild, emb)
-
-# --- 6. حماية الشات (سبام، روابط، صور) ---
+# --- 7. حماية الشات ونظام السبام (10د/30د/طرد) ---
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild: return
     
-    # المشرفين مستثنون من قيود الشات
-    if message.author.guild_permissions.manage_messages:
-        await bot.process_commands(message)
-        return
-
-    # منع الروابط والصور
-    if any(x in message.content.lower() for x in ["http", "discord.gg", "www."]) or message.attachments:
-        try: await message.delete()
-        except: pass
-        return
-
-    # نظام السبام المتدرج (10د -> 30د -> طرد)
-    uid = message.author.id
-    now = datetime.datetime.now().timestamp()
-    if uid not in spam_tracker: spam_tracker[uid] = []
-    spam_tracker[uid].append(now)
-    spam_tracker[uid] = [t for t in spam_tracker[uid] if now - t < 5]
-
-    if len(spam_tracker[uid]) > 5:
-        punishment_history[uid] = punishment_history.get(uid, 0) + 1
-        level = punishment_history[uid]
-        emb = discord.Embed(title="🔇 مخالفة سبام", color=discord.Color.light_grey())
-        emb.add_field(name="العضو", value=message.author.mention)
-
-        if level == 1:
-            try: await message.author.timeout(datetime.timedelta(minutes=10))
+    # المشرفين مستثنون من حماية الشات فقط لضمان عمل الأوامر
+    if not message.author.guild_permissions.manage_messages:
+        # منع الروابط والصور لغير الإدارة
+        if any(x in message.content.lower() for x in ["http", "discord.gg", "www."]) or message.attachments:
+            try: await message.delete()
             except: pass
-            emb.add_field(name="العقوبة", value="تايم أوت 10 دقائق")
-        elif level == 2:
-            try: await message.author.timeout(datetime.timedelta(minutes=30))
-            except: pass
-            emb.add_field(name="العقوبة", value="تايم أوت 30 دقيقة")
-        else:
-            try: await message.author.kick(reason="Spam Protection Limit")
-            except: pass
-            emb.add_field(name="العقوبة", value="طرد نهائي (Kick)")
-            punishment_history[uid] = 0 # تصفير بعد الطرد
+            return
 
-        await send_to_logs(message.guild, emb)
-        return
+        # نظام السبام المطور
+        uid = message.author.id
+        now = datetime.datetime.now().timestamp()
+        if uid not in spam_tracker: spam_tracker[uid] = []
+        spam_tracker[uid].append(now)
+        spam_tracker[uid] = [t for t in spam_tracker[uid] if now - t < 5]
+        
+        if len(spam_tracker[uid]) > 5:
+            punishment_history[uid] = punishment_history.get(uid, 0) + 1
+            lvl = punishment_history[uid]
+            
+            emb = discord.Embed(title="🔇 سجل العقوبات: سبام", color=discord.Color.dark_grey())
+            emb.add_field(name="العضو", value=message.author.mention)
+
+            if lvl == 1:
+                try: await message.author.timeout(datetime.timedelta(minutes=10))
+                except: pass
+                emb.add_field(name="العقوبة", value="تايم أوت 10 دقائق")
+            elif lvl == 2:
+                try: await message.author.timeout(datetime.timedelta(minutes=30))
+                except: pass
+                emb.add_field(name="العقوبة", value="تايم أوت 30 دقيقة")
+            else:
+                try: await message.author.kick(reason="Spam Protection")
+                except: pass
+                emb.add_field(name="العقوبة", value="طرد نهائي (Kick)")
+                punishment_history[uid] = 0
+
+            await send_to_logs(message.guild, emb)
+            return
 
     await bot.process_commands(message)
 
-# --- 7. الأوامر الصوتية والإدارية و !help_me ---
+# --- 8. الأوامر الكاملة (صوت + إدارة + مساعدة) ---
 @bot.command()
 async def join(ctx):
-    if ctx.author.voice:
-        await ctx.author.voice.channel.connect()
-        await ctx.send("✅ دخلت الروم الصوتي.")
-    else: await ctx.send("❌ ادخل روم صوتي أولاً!")
-
+    if ctx.author.voice: await ctx.author.voice.channel.connect(); await ctx.send("✅ تم الدخول.")
 @bot.command()
 async def leave(ctx):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("👋 تم الخروج من الروم.")
+    if ctx.voice_client: await ctx.voice_client.disconnect(); await ctx.send("👋 تم الخروج.")
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def clear(ctx, amount: int = 10):
     await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(f"🧹 تم مسح {amount} رسالة.", delete_after=3)
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 async def lock(ctx):
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
-    await ctx.send("🔒 تم قفل القناة.")
+    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False); await ctx.send("🔒")
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 async def unlock(ctx):
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
-    await ctx.send("🔓 تم فتح القناة.")
+    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True); await ctx.send("🔓")
 
 @bot.command()
 async def help_me(ctx):
-    emb = discord.Embed(title="🛡️ لوحة تحكم Security BartX Ultimate", color=discord.Color.gold())
-    emb.add_field(name="🎙️ الصوت", value="`!join`, `!leave`", inline=True)
-    emb.add_field(name="🧹 الإدارة", value="`!clear`, `!lock`, `!unlock`", inline=True)
-    emb.add_field(name="🚫 الأنظمة التلقائية", value="منع البان وفكه، منع الويب هوك، الروابط، الصور، والسبام (10د/30د/طرد).", inline=False)
-    emb.set_footer(text="كل الأنظمة الأمنية تعمل بكفاءة")
+    emb = discord.Embed(title="🛡️ Security BartX Ultimate Help Center", color=discord.Color.gold())
+    emb.add_field(name="🎙️ الأوامر الصوتية", value="`!join` | `!leave`", inline=True)
+    emb.add_field(name="🧹 الأوامر الإدارية", value="`!clear` | `!lock` | `!unlock`", inline=True)
+    emb.add_field(name="🚫 أنظمة الحماية التلقائية", value="• منع الرومات (أونر فقط)\n• منع البان التخريبي\n• منع الويب هوك\n• نظام السبام (10د/30د/طرد)\n• مراقبة شاملة لكل أحداث السيرفر", inline=False)
+    emb.set_footer(text="نظام مراقبة السيرفر يعمل بكفاءة كاملة")
     await ctx.send(embed=emb)
 
-# --- 8. تشغيل البوت ---
+# --- 9. التشغيل النهائي ---
 if __name__ == "__main__":
     keep_alive()
     bot.run(os.environ.get('TOKEN'))
