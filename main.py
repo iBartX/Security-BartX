@@ -1,15 +1,266 @@
 import os
+import json
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import datetime
 import asyncio
-from flask import Flask
+from flask import Flask, request
 from threading import Thread
+import traceback
 
-# --- 1. نظام الاستضافة لضمان العمل 24/7 ---
+# ================== 1️⃣ KEEP ALIVE ==================
 app = Flask('')
+
 @app.route('/')
-def home(): return "Security BartX Ultimate Shield is ONLINE 24/7!"
+def home():
+    return "Security BartX Ultimate Shield ONLINE"
+
+@app.route("/dashboard")
+def dashboard():
+    try:
+        # Load config safely
+        config_path = "security_config.json"
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        else:
+            cfg = {
+                "security_enabled": True,
+                "anti_nuke": True,
+                "whitelist_users": [],
+                "whitelist_roles": [],
+                "rate_limits": {"messages": [5, 5]},
+                "backup": {"enabled": True, "interval_minutes": 30, "max_backups": 10}
+            }
+            
+        return f"""
+        <html dir="rtl">
+        <head>
+            <title>لوحة التحكم الأمنية</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{ background:#0f172a;color:white;font-family:Tahoma,Arial,sans-serif;padding:20px }}
+                .container {{ max-width:800px;margin:0 auto }}
+                h1 {{ color:#22c55e;border-bottom:2px solid #334155;padding-bottom:10px }}
+                .status {{ background:#1e293b;padding:15px;border-radius:10px;margin:15px 0 }}
+                .btn {{ padding:12px 20px;margin:10px 5px;background:#22c55e;border:none;color:white;cursor:pointer;border-radius:5px;font-size:16px }}
+                .btn:hover {{ background:#16a34a }}
+                a {{ color:#60a5fa;text-decoration:none }}
+                .box {{ background:#1e293b;padding:20px;border-radius:10px;margin:20px 0 }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🛡️ Security BartX Control Panel</h1>
+                
+                <div class="box">
+                    <h2>📊 حالة النظام</h2>
+                    <p>🔒 Anti-Nuke: <strong>{'✅ مفعل' if cfg.get('anti_nuke', True) else '❌ معطل'}</strong></p>
+                    <p>🛡️ الحماية: <strong>{'✅ مفعلة' if cfg.get('security_enabled', True) else '❌ معطلة'}</strong></p>
+                    <p>👥 أعضاء الوايت ليست: <strong>{len(cfg.get('whitelist_users', []))}</strong></p>
+                    <p>🎖️ رتب الوايت ليست: <strong>{len(cfg.get('whitelist_roles', []))}</strong></p>
+                    <p>💾 النسخ الاحتياطي: <strong>{'✅ مفعل' if cfg.get('backup', {}).get('enabled', True) else '❌ معطل'}</strong></p>
+                </div>
+                
+                <div class="box">
+                    <h2>🎮 التحكم السريع</h2>
+                    <form action="/toggle_nuke" method="post">
+                        <button class="btn" type="submit">🔁 تبديل Anti-Nuke</button>
+                    </form>
+                    <form action="/toggle_security" method="post">
+                        <button class="btn" type="submit">⚡ تبديل الحماية</button>
+                    </form>
+                    <form action="/backup_now" method="post">
+                        <button class="btn" type="submit">💾 إنشاء نسخة احتياطية</button>
+                    </form>
+                    <form action="/view_logs" method="get">
+                        <button class="btn" type="submit">📜 عرض السجلات</button>
+                    </form>
+                </div>
+                
+                <div class="box">
+                    <h2>📁 إدارة النسخ الاحتياطية</h2>
+                    <p>عدد النسخ الاحتياطية: <strong>{len(os.listdir('backups')) if os.path.exists('backups') else 0}</strong></p>
+                    <p>آخر تحديث: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                </div>
+                
+                <p style="text-align:center;margin-top:30px;color:#94a3b8">
+                    © 2024 Security BartX Ultimate Shield v2.0
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"<h1>خطأ في التحميل</h1><p>{str(e)}</p>"
+
+@app.route("/toggle_nuke", methods=['POST'])
+def toggle_nuke():
+    try:
+        config_path = "security_config.json"
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        else:
+            cfg = {
+                "security_enabled": True,
+                "anti_nuke": True,
+                "whitelist_users": [],
+                "whitelist_roles": [],
+                "rate_limits": {"messages": [5, 5]},
+                "backup": {"enabled": True, "interval_minutes": 30, "max_backups": 10}
+            }
+        
+        current_state = cfg.get("anti_nuke", True)
+        cfg["anti_nuke"] = not current_state
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4)
+        
+        new_state = "مفعل" if cfg["anti_nuke"] else "معطل"
+        return f"""
+        <html dir="rtl">
+        <head><meta charset="UTF-8"><style>
+        body {{ background:#0f172a;color:white;padding:50px;text-align:center;font-family:Tahoma }}
+        .success {{ background:#166534;padding:20px;border-radius:10px;margin:20px auto;max-width:500px }}
+        .btn {{ background:#22c55e;color:white;padding:10px 20px;border:none;border-radius:5px;margin-top:20px;cursor:pointer }}
+        </style></head>
+        <body>
+            <div class="success">
+                <h2>✅ تم التغيير بنجاح</h2>
+                <p>Anti-Nuke الآن: <strong>{new_state}</strong></p>
+                <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
+            </div>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"<h1>خطأ</h1><p>{str(e)}</p>"
+
+@app.route("/toggle_security", methods=['POST'])
+def toggle_security():
+    try:
+        config_path = "security_config.json"
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        else:
+            cfg = {
+                "security_enabled": True,
+                "anti_nuke": True,
+                "whitelist_users": [],
+                "whitelist_roles": [],
+                "rate_limits": {"messages": [5, 5]},
+                "backup": {"enabled": True, "interval_minutes": 30, "max_backups": 10}
+            }
+        
+        current_state = cfg.get("security_enabled", True)
+        cfg["security_enabled"] = not current_state
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4)
+        
+        new_state = "مفعلة" if cfg["security_enabled"] else "معطلة"
+        return f"""
+        <html dir="rtl">
+        <head><meta charset="UTF-8"><style>
+        body {{ background:#0f172a;color:white;padding:50px;text-align:center;font-family:Tahoma }}
+        .success {{ background:#166534;padding:20px;border-radius:10px;margin:20px auto;max-width:500px }}
+        .btn {{ background:#22c55e;color:white;padding:10px 20px;border:none;border-radius:5px;margin-top:20px;cursor:pointer }}
+        </style></head>
+        <body>
+            <div class="success">
+                <h2>✅ تم التغيير بنجاح</h2>
+                <p>الحماية الآن: <strong>{new_state}</strong></p>
+                <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
+            </div>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"<h1>خطأ</h1><p>{str(e)}</p>"
+
+@app.route("/backup_now", methods=['POST'])
+def backup_now():
+    try:
+        # Create backup directory if not exists
+        if not os.path.exists('backups'):
+            os.makedirs('backups')
+        
+        # Create simple backup
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = f"backups/backup_{timestamp}.json"
+        
+        # Save current config
+        config_path = "security_config.json"
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            with open(backup_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=4)
+        
+        # Clean old backups (keep only 10)
+        if os.path.exists('backups'):
+            backups = sorted(os.listdir('backups'))
+            if len(backups) > 10:
+                for old_backup in backups[:-10]:
+                    os.remove(f"backups/{old_backup}")
+        
+        return f"""
+        <html dir="rtl">
+        <head><meta charset="UTF-8"><style>
+        body {{ background:#0f172a;color:white;padding:50px;text-align:center;font-family:Tahoma }}
+        .success {{ background:#166534;padding:20px;border-radius:10px;margin:20px auto;max-width:500px }}
+        .btn {{ background:#22c55e;color:white;padding:10px 20px;border:none;border-radius:5px;margin-top:20px;cursor:pointer }}
+        </style></head>
+        <body>
+            <div class="success">
+                <h2>✅ تم إنشاء النسخة الاحتياطية</h2>
+                <p>تم حفظ النسخة في: <strong>{backup_path}</strong></p>
+                <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
+            </div>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"<h1>خطأ</h1><p>{str(e)}</p>"
+
+@app.route("/view_logs")
+def view_logs():
+    try:
+        backups_dir = "backups"
+        if not os.path.exists(backups_dir):
+            return "<h1>⚠️ لا توجد نسخ احتياطية</h1>"
+        
+        backups = sorted(os.listdir(backups_dir), reverse=True)
+        html = """
+        <html dir="rtl">
+        <head><meta charset="UTF-8"><style>
+        body { background:#0f172a;color:white;padding:20px;font-family:Tahoma }
+        h1 { color:#22c55e }
+        .backup-item { background:#1e293b;padding:15px;margin:10px 0;border-radius:5px }
+        .btn { background:#22c55e;color:white;padding:8px 15px;border:none;border-radius:3px;margin:5px }
+        </style></head>
+        <body>
+            <h1>📜 النسخ الاحتياطية</h1>
+            <a href='/dashboard'><button class="btn">↩️ رجوع</button></a>
+            <hr>
+        """
+        
+        for backup in backups[:20]:  # Show last 20 backups
+            file_path = os.path.join(backups_dir, backup)
+            size = os.path.getsize(file_path) / 1024  # Convert to KB
+            html += f"""
+            <div class="backup-item">
+                <strong>{backup}</strong><br>
+                <small>الحجم: {size:.2f} كيلوبايت</small>
+            </div>
+            """
+        
+        html += "</body></html>"
+        return html
+    except Exception as e:
+        return f"<h1>خطأ</h1><p>{str(e)}</p>"
 
 def run():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
@@ -17,206 +268,589 @@ def run():
 def keep_alive():
     Thread(target=run, daemon=True).start()
 
-# --- 2. إعدادات البوت والبيانات ---
+# ================== 2️⃣ BOT SETUP ==================
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# مخازن بيانات السبام وتاريخ العقوبات
-spam_tracker = {}
-punishment_history = {}
+# ================== 3️⃣ JSON CONFIG ==================
+CONFIG_FILE = "security_config.json"
+BACKUP_DIR = "backups"
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
+DEFAULT_CONFIG = {
+    "security_enabled": True,
+    "anti_nuke": True,
+    "whitelist_users": [],
+    "whitelist_roles": [],
+    "rate_limits": {
+        "messages": [5, 5]
+    },
+    "backup": {
+        "enabled": True,
+        "interval_minutes": 30,
+        "max_backups": 10
+    }
+}
+
+def load_config():
+    try:
+        if not os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, indent=4)
+            return DEFAULT_CONFIG.copy()
+        
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"❌ خطأ في تحميل الإعدادات: {e}")
+        return DEFAULT_CONFIG.copy()
+
+def save_config():
+    try:
+        data = {
+            "security_enabled": SECURITY_ENABLED,
+            "anti_nuke": ANTI_NUKE_ENABLED,
+            "whitelist_users": list(WHITELIST_USERS),
+            "whitelist_roles": list(WHITELIST_ROLES),
+            "rate_limits": RATE_LIMITS,
+            "backup": {
+                "enabled": BACKUP_ENABLED,
+                "interval_minutes": BACKUP_INTERVAL,
+                "max_backups": MAX_BACKUPS
+            }
+        }
+        
+        # Create backup before change
+        if BACKUP_ENABLED:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{BACKUP_DIR}/before_change_{timestamp}.json"
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    old_config = json.load(f)
+                with open(backup_path, "w", encoding="utf-8") as f:
+                    json.dump(old_config, f, indent=4)
+        
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"❌ خطأ في حفظ الإعدادات: {e}")
+
+# Load initial config
+config = load_config()
+
+SECURITY_ENABLED = config["security_enabled"]
+ANTI_NUKE_ENABLED = config["anti_nuke"]
+WHITELIST_USERS = set(config["whitelist_users"])
+WHITELIST_ROLES = set(config["whitelist_roles"])
+RATE_LIMITS = config["rate_limits"]
+
+BACKUP_ENABLED = config["backup"]["enabled"]
+BACKUP_INTERVAL = config["backup"]["interval_minutes"]
+MAX_BACKUPS = config["backup"]["max_backups"]
+
+# ================== 4️⃣ GLOBAL STATE ==================
+rate_cache = {}
+nuke_tracker = {}
+NUKE_LIMIT = 3
+NUKE_WINDOW = 8
+
+# ================== 5️⃣ READY ==================
 @bot.event
 async def on_ready():
-    print(f"========================================")
-    print(f"✅ تم تشغيل البوت الشامل: {bot.user.name}")
-    print(f"📡 مراقبة السجلات: نشطة 100%")
-    print(f"🛡️ حماية الاونر والسيادة: مفعلة")
-    print(f"========================================")
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="أمن السيرفر | !help_me"))
+    print(f"🛡️ {bot.user} ONLINE | JSON CONFIG LOADED")
+    print(f"📊 عدد السيرفرات: {len(bot.guilds)}")
+    
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="حماية السيرفر | !الحماية"
+        )
+    )
+    
+    # Start backup task if enabled
+    if BACKUP_ENABLED:
+        auto_backup.start()
+        print(f"✅ نظام النسخ الاحتياطي مفعل (كل {BACKUP_INTERVAL} دقيقة)")
 
-# دالة إرسال السجلات الموحدة (Embeds)
+# ================== 6️⃣ LOG SYSTEM ==================
 async def send_to_logs(guild, embed):
-    log_channel = discord.utils.get(guild.text_channels, name='logs-security')
-    if log_channel:
+    try:
+        # Try to find logs channel
+        for channel in guild.text_channels:
+            if "logs" in channel.name.lower() or "سجلات" in channel.name:
+                await channel.send(embed=embed)
+                return
+        
+        # If not found, try to create one
         try:
-            await log_channel.send(embed=embed)
+            logs_channel = await guild.create_text_channel(
+                "logs-security",
+                reason="قناة سجلات الحماية"
+            )
+            await logs_channel.send(embed=embed)
         except:
-            pass
+            pass  # No permission to create channel
+    except:
+        pass  # Ignore logging errors
 
-# --- 3. نظام حماية "السيادة" (منع إنشاء الرومات لغير الاونر) ---
-@bot.event
-async def on_guild_channel_create(channel):
-    await asyncio.sleep(1.5)
-    async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_create, limit=1):
-        mod = entry.user
-        if mod.id == channel.guild.owner_id or mod.id == bot.user.id:
-            return
-        
-        # حذف الروم فوراً
-        await channel.delete(reason="Anti-Nuke: Sovereignty Protocol (Owner Only)")
-        
-        # سحب كافة الرتب من الفاعل مهما كان منصبه
+# ================== 7️⃣ WHITELIST ==================
+def is_whitelisted(member):
+    if member.id == member.guild.owner_id:
+        return True
+    if member.id == bot.user.id:
+        return True
+    if member.id in WHITELIST_USERS:
+        return True
+    return any(role.id in WHITELIST_ROLES for role in member.roles)
+
+# ================== 8️⃣ AUDIT LOG SAFE ==================
+async def safe_executor(guild, action, target_id):
+    try:
+        async for entry in guild.audit_logs(limit=10, action=action):
+            if entry.target and getattr(entry.target, 'id', None) == target_id:
+                if (datetime.datetime.utcnow() - entry.created_at).total_seconds() < 10:
+                    return entry.user
+        return None
+    except discord.Forbidden:
+        print(f"⛔ لا يوجد صلاحية لسجلات التدقيق في {guild.name}")
+        return None
+    except Exception as e:
+        print(f"⚠️ خطأ في سجلات التدقيق: {e}")
+        return None
+
+# ================== 9️⃣ NUKE KILLER ==================
+async def handle_nuke(member, reason):
+    if is_whitelisted(member):
+        return
+    
+    now = datetime.datetime.utcnow().timestamp()
+    uid = member.id
+    nuke_tracker.setdefault(uid, [])
+    nuke_tracker[uid].append(now)
+    nuke_tracker[uid] = [t for t in nuke_tracker[uid] if now - t < NUKE_WINDOW]
+    
+    if len(nuke_tracker[uid]) >= NUKE_LIMIT:
         try:
-            await mod.edit(roles=[], reason="Anti-Nuke: Attempted Channel Creation without Permission")
-        except:
-            pass
+            # Remove all roles
+            if member.guild.me.guild_permissions.manage_roles:
+                await member.edit(roles=[], reason="هجوم تخريبي - إزالة الرتب")
+            
+            # Ban the user
+            if member.guild.me.guild_permissions.ban_members:
+                await member.ban(reason=f"هجوم تخريبي: {reason}", delete_message_days=1)
+            
+            # Create log embed
+            embed = discord.Embed(
+                title="💣 تم إيقاف هجوم تخريبي",
+                description=f"تم حظر المستخدم بسبب نشاط تخريبي",
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.utcnow()
+            )
+            embed.add_field(name="👤 المستخدم", value=f"{member.mention}\n{member.id}", inline=True)
+            embed.add_field(name="📝 السبب", value=reason, inline=True)
+            embed.add_field(name="📊 عدد الأنشطة", value=str(len(nuke_tracker[uid])), inline=True)
+            embed.set_footer(text="Security BartX Ultimate Shield")
+            
+            await send_to_logs(member.guild, embed)
+            
+            # Reset tracker
+            nuke_tracker[uid] = []
+            
+        except discord.Forbidden:
+            print(f"⛔ لا يوجد صلاحيات لاتخاذ إجراء ضد {member}")
+        except Exception as e:
+            print(f"⚠️ خطأ في معالجة الهجوم: {e}")
 
-        emb = discord.Embed(title="🚨 خرق أمني: إنشاء قناة", color=discord.Color.red(), timestamp=datetime.datetime.utcnow())
-        emb.add_field(name="الفاعل (المخالف)", value=f"{mod.mention} ({mod.id})", inline=False)
-        emb.add_field(name="اسم القناة المحذوفة", value=channel.name, inline=True)
-        emb.add_field(name="الإجراء المتخذ", value="تم حذف القناة وسحب كافة الرتب فوراً", inline=True)
-        emb.set_footer(text="نظام حماية سيادة صاحب السيرفر")
-        await send_to_logs(channel.guild, emb)
-
-# --- 4. سجلات مراقبة الرسائل (حذف وتعديل) ---
+# ================== 🔟 NUKE EVENTS ==================
 @bot.event
-async def on_message_delete(message):
-    if message.author.bot: return
-    emb = discord.Embed(title="🗑️ مراقبة الرسائل: حذف", color=discord.Color.orange(), timestamp=datetime.datetime.utcnow())
-    emb.add_field(name="الكاتب", value=message.author.mention, inline=True)
-    emb.add_field(name="القناة", value=message.channel.mention, inline=True)
-    emb.add_field(name="المحتوى المحذوف", value=message.content or "صورة أو ملف مرفق", inline=False)
-    await send_to_logs(message.guild, emb)
-
-@bot.event
-async def on_message_edit(before, after):
-    if before.author.bot or before.content == after.content: return
-    emb = discord.Embed(title="📝 مراقبة الرسائل: تعديل", color=discord.Color.blue(), timestamp=datetime.datetime.utcnow())
-    emb.add_field(name="الكاتب", value=before.author.mention, inline=True)
-    emb.add_field(name="النص قبل التعديل", value=before.content, inline=False)
-    emb.add_field(name="النص بعد التعديل", value=after.content, inline=False)
-    await send_to_logs(before.guild, emb)
-
-# --- 5. سجلات مراقبة الرتب والأعضاء (كاملة) ---
-@bot.event
-async def on_member_update(before, after):
-    if before.roles != after.roles:
-        emb = discord.Embed(title="🎭 سجل تغيير الرتب", color=discord.Color.teal(), timestamp=datetime.datetime.utcnow())
-        emb.add_field(name="العضو المعني", value=after.mention)
-        
-        added = [role.mention for role in after.roles if role not in before.roles]
-        removed = [role.mention for role in before.roles if role not in after.roles]
-        
-        if added: emb.add_field(name="رتب تم منحها ✅", value=", ".join(added), inline=False)
-        if removed: emb.add_field(name="رتب تم سحبها ❌", value=", ".join(removed), inline=False)
-        await send_to_logs(after.guild, emb)
+async def on_guild_channel_delete(channel):
+    if not SECURITY_ENABLED or not ANTI_NUKE_ENABLED:
+        return
+    
+    mod = await safe_executor(channel.guild, discord.AuditLogAction.channel_delete, channel.id)
+    if mod:
+        await handle_nuke(mod, "حذف قنوات")
 
 @bot.event
-async def on_guild_role_create(role):
-    async for entry in role.guild.audit_logs(action=discord.AuditLogAction.role_create, limit=1):
-        mod = entry.user
-        emb = discord.Embed(title="✨ سجل الرتب: إنشاء", color=discord.Color.green())
-        emb.add_field(name="الرتبة المنشأة", value=role.name)
-        emb.add_field(name="بواسطة", value=mod.mention)
-        await send_to_logs(role.guild, emb)
+async def on_guild_role_delete(role):
+    if not SECURITY_ENABLED or not ANTI_NUKE_ENABLED:
+        return
+    
+    mod = await safe_executor(role.guild, discord.AuditLogAction.role_delete, role.id)
+    if mod:
+        await handle_nuke(mod, "حذف رتب")
 
-# --- 6. حماية Anti-Nuke (بان، ويب هوك، حذف رومات) ---
-@bot.event
-async def on_member_ban(guild, user):
-    await asyncio.sleep(2)
-    async for entry in guild.audit_logs(action=discord.AuditLogAction.ban, limit=1):
-        if entry.target.id == user.id:
-            mod = entry.user
-            if mod.id == guild.owner_id or mod.id == bot.user.id: return
-            try: await mod.edit(roles=[], reason="Anti-Nuke: Ban")
-            except: pass
-            try: await guild.unban(user)
-            except: pass
-            emb = discord.Embed(title="🚨 منع بان تخريبي", color=discord.Color.red())
-            emb.add_field(name="المشرف", value=mod.mention); emb.add_field(name="الضحية", value=user.name)
-            await send_to_logs(guild, emb)
+# ================== 1️⃣1️⃣ RATE LIMIT ==================
+def rate_limited(uid, key, limit, window):
+    now = datetime.datetime.utcnow().timestamp()
+    cache_key = f"{uid}_{key}"
+    
+    if cache_key not in rate_cache:
+        rate_cache[cache_key] = []
+    
+    rate_cache[cache_key].append(now)
+    
+    # Clean old entries
+    rate_cache[cache_key] = [t for t in rate_cache[cache_key] if now - t < window]
+    
+    return len(rate_cache[cache_key]) > limit
 
-@bot.event
-async def on_webhooks_update(channel):
-    async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.webhook_create, limit=1):
-        mod = entry.user
-        if mod.id in [channel.guild.owner_id, bot.user.id]: return
-        for wh in await channel.webhooks(): await wh.delete()
-        try: await mod.edit(roles=[], reason="Anti-Nuke: Webhook")
-        except: pass
-        emb = discord.Embed(title="🚫 منع ويب هوك", color=discord.Color.orange())
-        emb.add_field(name="الفاعل", value=mod.mention)
-        await send_to_logs(channel.guild, emb)
-
-# --- 7. حماية الشات ونظام السبام (10د/30د/طرد) ---
 @bot.event
 async def on_message(message):
-    if message.author.bot or not message.guild: return
+    if message.author.bot or not message.guild:
+        return
     
-    # المشرفين مستثنون من حماية الشات فقط لضمان عمل الأوامر
-    if not message.author.guild_permissions.manage_messages:
-        # منع الروابط والصور لغير الإدارة
-        if any(x in message.content.lower() for x in ["http", "discord.gg", "www."]) or message.attachments:
-            try: await message.delete()
-            except: pass
-            return
-
-        # نظام السبام المطور
-        uid = message.author.id
-        now = datetime.datetime.now().timestamp()
-        if uid not in spam_tracker: spam_tracker[uid] = []
-        spam_tracker[uid].append(now)
-        spam_tracker[uid] = [t for t in spam_tracker[uid] if now - t < 5]
-        
-        if len(spam_tracker[uid]) > 5:
-            punishment_history[uid] = punishment_history.get(uid, 0) + 1
-            lvl = punishment_history[uid]
-            
-            emb = discord.Embed(title="🔇 سجل العقوبات: سبام", color=discord.Color.dark_grey())
-            emb.add_field(name="العضو", value=message.author.mention)
-
-            if lvl == 1:
-                try: await message.author.timeout(datetime.timedelta(minutes=10))
-                except: pass
-                emb.add_field(name="العقوبة", value="تايم أوت 10 دقائق")
-            elif lvl == 2:
-                try: await message.author.timeout(datetime.timedelta(minutes=30))
-                except: pass
-                emb.add_field(name="العقوبة", value="تايم أوت 30 دقيقة")
-            else:
-                try: await message.author.kick(reason="Spam Protection")
-                except: pass
-                emb.add_field(name="العقوبة", value="طرد نهائي (Kick)")
-                punishment_history[uid] = 0
-
-            await send_to_logs(message.guild, emb)
-            return
-
+    # Process commands first
     await bot.process_commands(message)
+    
+    # Then check rate limiting
+    if SECURITY_ENABLED and not is_whitelisted(message.author):
+        limit, window = RATE_LIMITS.get("messages", [5, 5])
+        if rate_limited(message.author.id, "msg", limit, window):
+            try:
+                if message.guild.me.guild_permissions.moderate_members:
+                    await message.author.timeout(
+                        datetime.timedelta(minutes=5),
+                        reason="تجاوز حد الرسائل"
+                    )
+                    embed = discord.Embed(
+                        title="⏰ تم تقييد المستخدم",
+                        description=f"المستخدم {message.author.mention} تجاوز حد الرسائل المسموح بها",
+                        color=discord.Color.orange()
+                    )
+                    await send_to_logs(message.guild, embed)
+            except:
+                pass
 
-# --- 8. الأوامر الكاملة (صوت + إدارة + مساعدة) ---
-@bot.command()
-async def join(ctx):
-    if ctx.author.voice: await ctx.author.voice.channel.connect(); await ctx.send("✅ تم الدخول.")
-@bot.command()
-async def leave(ctx):
-    if ctx.voice_client: await ctx.voice_client.disconnect(); await ctx.send("👋 تم الخروج.")
+# ================== 1️⃣2️⃣ BACKUP / RESTORE ==================
+def create_backup(reason="auto"):
+    if not BACKUP_ENABLED:
+        return
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"backup_{timestamp}_{reason}.json"
+    path = os.path.join(BACKUP_DIR, name)
+    
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(load_config(), f, indent=4)
+        
+        # Clean old backups
+        backups = sorted(os.listdir(BACKUP_DIR))
+        while len(backups) > MAX_BACKUPS:
+            oldest = backups.pop(0)
+            os.remove(os.path.join(BACKUP_DIR, oldest))
+        
+        print(f"✅ تم إنشاء نسخة احتياطية: {name}")
+    except Exception as e:
+        print(f"❌ فشل إنشاء نسخة احتياطية: {e}")
 
-@bot.command()
-@commands.has_permissions(manage_messages=True)
-async def clear(ctx, amount: int = 10):
-    await ctx.channel.purge(limit=amount + 1)
+@tasks.loop(minutes=BACKUP_INTERVAL)
+async def auto_backup():
+    if BACKUP_ENABLED:
+        create_backup("auto")
 
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def lock(ctx):
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False); await ctx.send("🔒")
+async def backup_guild(guild, reason="auto"):
+    try:
+        data = {
+            "guild_id": guild.id,
+            "guild_name": guild.name,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "reason": reason,
+            "roles": [],
+            "channels": []
+        }
+        
+        # Backup roles
+        for role in guild.roles:
+            if role.is_default():
+                continue
+            data["roles"].append({
+                "name": role.name,
+                "permissions": role.permissions.value,
+                "color": role.color.value,
+                "hoist": role.hoist,
+                "mentionable": role.mentionable,
+                "position": role.position
+            })
+        
+        # Backup channels
+        for channel in guild.channels:
+            overwrites = {}
+            for target, perms in channel.overwrites.items():
+                overwrites[str(target.id)] = perms.pair()
+            
+            data["channels"].append({
+                "name": channel.name,
+                "type": str(channel.type),
+                "category": channel.category.name if channel.category else None,
+                "position": channel.position,
+                "overwrites": overwrites
+            })
+        
+        # Save backup
+        path = f"{BACKUP_DIR}/guild_{guild.id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        
+        print(f"✅ تم نسخ سيرفر {guild.name}")
+    except Exception as e:
+        print(f"❌ فشل نسخ سيرفر {guild.name}: {e}")
 
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def unlock(ctx):
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True); await ctx.send("🔓")
+async def restore_roles(guild):
+    try:
+        # Find latest backup for this guild
+        backups = [f for f in os.listdir(BACKUP_DIR) if f.startswith(f"guild_{guild.id}_")]
+        if not backups:
+            return False
+        
+        latest = sorted(backups)[-1]
+        path = os.path.join(BACKUP_DIR, latest)
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        # Restore roles
+        for role_data in sorted(data["roles"], key=lambda r: r["position"]):
+            if discord.utils.get(guild.roles, name=role_data["name"]):
+                continue
+            
+            try:
+                await guild.create_role(
+                    name=role_data["name"],
+                    permissions=discord.Permissions(role_data["permissions"]),
+                    color=discord.Color(role_data["color"]),
+                    hoist=role_data["hoist"],
+                    mentionable=role_data["mentionable"],
+                    reason="استعادة الرتب من النسخة الاحتياطية"
+                )
+            except:
+                continue
+        
+        return True
+    except Exception as e:
+        print(f"❌ فشل استعادة الرتب: {e}")
+        return False
 
-@bot.command()
-async def help_me(ctx):
-    emb = discord.Embed(title="🛡️ Security BartX Ultimate Help Center", color=discord.Color.gold())
-    emb.add_field(name="🎙️ الأوامر الصوتية", value="`!join` | `!leave`", inline=True)
-    emb.add_field(name="🧹 الأوامر الإدارية", value="`!clear` | `!lock` | `!unlock`", inline=True)
-    emb.add_field(name="🚫 أنظمة الحماية التلقائية", value="• منع الرومات (أونر فقط)\n• منع البان التخريبي\n• منع الويب هوك\n• نظام السبام (10د/30د/طرد)\n• مراقبة شاملة لكل أحداث السيرفر", inline=False)
-    emb.set_footer(text="نظام مراقبة السيرفر يعمل بكفاءة كاملة")
-    await ctx.send(embed=emb)
+def restore_settings_only():
+    try:
+        backups = [f for f in os.listdir(BACKUP_DIR) if "before_change" in f]
+        if not backups:
+            return False
+        
+        latest = sorted(backups)[-1]
+        path = os.path.join(BACKUP_DIR, latest)
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        
+        # Reload config
+        global config, SECURITY_ENABLED, ANTI_NUKE_ENABLED, WHITELIST_USERS, WHITELIST_ROLES
+        global RATE_LIMITS, BACKUP_ENABLED, BACKUP_INTERVAL, MAX_BACKUPS
+        
+        config = load_config()
+        SECURITY_ENABLED = config["security_enabled"]
+        ANTI_NUKE_ENABLED = config["anti_nuke"]
+        WHITELIST_USERS = set(config["whitelist_users"])
+        WHITELIST_ROLES = set(config["whitelist_roles"])
+        RATE_LIMITS = config["rate_limits"]
+        BACKUP_ENABLED = config["backup"]["enabled"]
+        BACKUP_INTERVAL = config["backup"]["interval_minutes"]
+        MAX_BACKUPS = config["backup"]["max_backups"]
+        
+        return True
+    except Exception as e:
+        print(f"❌ فشل استعادة الإعدادات: {e}")
+        return False
 
-# --- 9. التشغيل النهائي ---
+# ================== 1️⃣3️⃣ ADMIN PANEL (AR) ==================
+@bot.group()
+@commands.has_permissions(administrator=True)
+async def الحماية(ctx):
+    if ctx.invoked_subcommand is None:
+        embed = discord.Embed(
+            title="🛡️ قائمة أوامر الحماية",
+            description="أوامر إدارة نظام الحماية المتكامل",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="⚙️ الإعدادات",
+            value="• `!الحماية تشغيل` - تشغيل الحماية\n• `!الحماية إيقاف` - إيقاف الحماية\n• `!الحماية الحالة` - عرض حالة النظام",
+            inline=False
+        )
+        embed.add_field(
+            name="👥 الوايت ليست",
+            value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`",
+            inline=False
+        )
+        embed.add_field(
+            name="💾 النسخ الاحتياطية",
+            value="• `!الحماية نسخ_احتياطي`\n• `!الحماية استرجاع_الرتب`\n• `!الحماية استرجاع_الإعدادات`",
+            inline=False
+        )
+        embed.add_field(
+            name="🌐 لوحة التحكم",
+            value="يمكنك الوصول للوحة التحكم عبر الرابط:\n`/dashboard`",
+            inline=False
+        )
+        embed.set_footer(text="Security BartX Ultimate Shield v2.0")
+        await ctx.send(embed=embed)
+
+@الحماية.command()
+async def تشغيل(ctx):
+    global SECURITY_ENABLED
+    SECURITY_ENABLED = True
+    save_config()
+    
+    embed = discord.Embed(
+        title="✅ تم تشغيل الحماية",
+        description="نظام الحماية الآن نشط ويحمي السيرفر",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+@الحماية.command()
+async def إيقاف(ctx):
+    global SECURITY_ENABLED
+    SECURITY_ENABLED = False
+    save_config()
+    
+    embed = discord.Embed(
+        title="⛔ تم إيقاف الحماية",
+        description="نظام الحماية الآن معطل",
+        color=discord.Color.red()
+    )
+    await ctx.send(embed=embed)
+
+@الحماية.command()
+async def الحالة(ctx):
+    embed = discord.Embed(
+        title="📊 حالة نظام الحماية",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="🛡️ الحماية", value="✅ مفعل" if SECURITY_ENABLED else "❌ معطل", inline=True)
+    embed.add_field(name="💣 Anti-Nuke", value="✅ مفعل" if ANTI_NUKE_ENABLED else "❌ معطل", inline=True)
+    embed.add_field(name="👥 أعضاء الوايت ليست", value=str(len(WHITELIST_USERS)), inline=True)
+    embed.add_field(name="🎖️ رتب الوايت ليست", value=str(len(WHITELIST_ROLES)), inline=True)
+    embed.add_field(name="💾 النسخ الاحتياطية", value="✅ مفعل" if BACKUP_ENABLED else "❌ معطل", inline=True)
+    embed.add_field(name="⏰ معدل النسخ", value=f"كل {BACKUP_INTERVAL} دقيقة", inline=True)
+    embed.set_footer(text=f"عدد النسخ المحفوظة: {len(os.listdir(BACKUP_DIR))}")
+    await ctx.send(embed=embed)
+
+@الحماية.group()
+async def وايت_ليست(ctx):
+    if ctx.invoked_subcommand is None:
+        embed = discord.Embed(
+            title="👥 إدارة الوايت ليست",
+            description="أوامر إدارة القائمة البيضاء",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="الأوامر",
+            value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`",
+            inline=False
+        )
+        await ctx.send(embed=embed)
+
+@وايت_ليست.command()
+async def إضافة_عضو(ctx, member: discord.Member):
+    WHITELIST_USERS.add(member.id)
+    save_config()
+    
+    embed = discord.Embed(
+        title="✅ تمت الإضافة",
+        description=f"تمت إضافة {member.mention} إلى القائمة البيضاء",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+@وايت_ليست.command()
+async def إضافة_رتبة(ctx, role: discord.Role):
+    WHITELIST_ROLES.add(role.id)
+    save_config()
+    
+    embed = discord.Embed(
+        title="✅ تمت الإضافة",
+        description=f"تمت إضافة رتبة **{role.name}** إلى القائمة البيضاء",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+@الحماية.command()
+async def نسخ_احتياطي(ctx):
+    create_backup("manual")
+    embed = discord.Embed(
+        title="💾 تم إنشاء نسخة احتياطية",
+        description="تم حفظ إعدادات النظام الحالية",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+@الحماية.command()
+async def استرجاع_الرتب(ctx):
+    ok = await restore_roles(ctx.guild)
+    embed = discord.Embed(
+        title="♻️ استرجاع الرتب" if ok else "❌ فشل الاسترجاع",
+        description="تم استرجاع الرتب من النسخة الاحتياطية" if ok else "لا توجد نسخة احتياطية متاحة",
+        color=discord.Color.green() if ok else discord.Color.red()
+    )
+    await ctx.send(embed=embed)
+
+@الحماية.command()
+async def استرجاع_الإعدادات(ctx):
+    ok = restore_settings_only()
+    embed = discord.Embed(
+        title="♻️ استرجاع الإعدادات" if ok else "❌ فشل الاسترجاع",
+        description="تم استرجاع إعدادات النظام" if ok else "لا توجد نسخة احتياطية للإعدادات",
+        color=discord.Color.green() if ok else discord.Color.red()
+    )
+    await ctx.send(embed=embed)
+
+# ================== 1️⃣4️⃣ ERROR HANDLING ==================
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        embed = discord.Embed(
+            title="⛔ صلاحية مرفوضة",
+            description="تحتاج إلى صلاحية المدير لاستخدام هذا الأمر",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    elif isinstance(error, commands.CommandNotFound):
+        pass  # Ignore unknown commands
+    elif isinstance(error, commands.MissingRequiredArgument):
+        embed = discord.Embed(
+            title="⚠️ معطيات ناقصة",
+            description=f"يرجى إدخال جميع المعطيات المطلوبة\nاستخدم `!الحماية` للمساعدة",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+    else:
+        print(f"❌ خطأ غير معالج: {error}")
+
+# ================== 1️⃣5️⃣ RUN ==================
 if __name__ == "__main__":
-    keep_alive()
-    bot.run(os.environ.get('TOKEN'))
+    try:
+        # Start web server
+        keep_alive()
+        print("🌐 خادم الويب يعمل...")
+        
+        # Get bot token
+        token = os.environ.get("TOKEN")
+        if not token:
+            print("❌ خطأ: لم يتم العثور على التوكن!")
+            print("يرجى تعيين متغير البيئة TOKEN")
+            exit(1)
+        
+        # Run bot
+        print("🤖 جاري تشغيل البوت...")
+        bot.run(token)
+        
+    except discord.LoginFailure:
+        print("❌ خطأ: التوكن غير صالح!")
+    except Exception as e:
+        print(f"❌ خطأ غير متوقع: {e}")
+        traceback.print_exc()
