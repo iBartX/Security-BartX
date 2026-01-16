@@ -354,6 +354,9 @@ nuke_tracker = {}
 NUKE_LIMIT = 3
 NUKE_WINDOW = 8
 
+# Voice connections tracker
+voice_connections = {}
+
 # ================== 5️⃣ READY ==================
 @bot.event
 async def on_ready():
@@ -692,11 +695,21 @@ async def الحماية(ctx):
             inline=False
         )
         embed.add_field(
+            name="🎤 أوامر الصوت",
+            value="• `!دخول` - الدخول للروم الصوتي\n• `!خروج` - الخروج من الروم الصوتي",
+            inline=False
+        )
+        embed.add_field(
+            name="🗑️ إدارة المحادثات",
+            value="• `!مسح [عدد]` - مسح الرسائل\n• `!اغلاق_الشات` - إغلاق الشات\n• `!فتح_الشات` - فتح الشات",
+            inline=False
+        )
+        embed.add_field(
             name="🌐 لوحة التحكم",
             value="يمكنك الوصول للوحة التحكم عبر الرابط:\n`/dashboard`",
             inline=False
         )
-        embed.set_footer(text="Security BartX Ultimate Shield v2.0")
+        embed.set_footer(text="Security BartX Ultimate Shield v3.0")
         await ctx.send(embed=embed)
 
 @الحماية.command()
@@ -809,7 +822,304 @@ async def استرجاع_الإعدادات(ctx):
     )
     await ctx.send(embed=embed)
 
-# ================== 1️⃣4️⃣ ERROR HANDLING ==================
+# ================== 1️⃣4️⃣ VOICE COMMANDS ==================
+@bot.command(name="دخول", aliases=["join", "connect"])
+@commands.has_permissions(manage_channels=True)
+async def join_voice(ctx):
+    """الدخول إلى الروم الصوتي الحالي"""
+    try:
+        # Check if user is in a voice channel
+        if ctx.author.voice is None:
+            embed = discord.Embed(
+                title="❌ خطأ",
+                description="يجب أن تكون في روم صوتي أولاً",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        voice_channel = ctx.author.voice.channel
+        
+        # Check if bot is already connected
+        if ctx.guild.voice_client is not None:
+            if ctx.guild.voice_client.channel == voice_channel:
+                embed = discord.Embed(
+                    title="ℹ️ معلومة",
+                    description="أنا بالفعل متصل في هذا الروم الصوتي",
+                    color=discord.Color.blue()
+                )
+                await ctx.send(embed=embed)
+                return
+            else:
+                # Move to new channel
+                await ctx.guild.voice_client.move_to(voice_channel)
+                embed = discord.Embed(
+                    title="✅ تم النقل",
+                    description=f"تم الانتقال إلى روم {voice_channel.mention}",
+                    color=discord.Color.green()
+                )
+                await ctx.send(embed=embed)
+                return
+        
+        # Connect to voice channel
+        voice_client = await voice_channel.connect()
+        voice_connections[ctx.guild.id] = voice_client
+        
+        embed = discord.Embed(
+            title="✅ تم الدخول",
+            description=f"تم الدخول إلى روم {voice_channel.mention}",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+        
+    except discord.ClientException as e:
+        embed = discord.Embed(
+            title="❌ خطأ في الاتصال",
+            description=f"لا يمكن الاتصال: {str(e)}",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ خطأ غير متوقع",
+            description=str(e),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+@bot.command(name="خروج", aliases=["leave", "disconnect"])
+@commands.has_permissions(manage_channels=True)
+async def leave_voice(ctx):
+    """الخروج من الروم الصوتي"""
+    try:
+        # Check if bot is connected
+        if ctx.guild.voice_client is None:
+            embed = discord.Embed(
+                title="❌ خطأ",
+                description="أنا لست متصلاً بأي روم صوتي",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Disconnect from voice
+        await ctx.guild.voice_client.disconnect()
+        
+        # Remove from connections tracker
+        if ctx.guild.id in voice_connections:
+            del voice_connections[ctx.guild.id]
+        
+        embed = discord.Embed(
+            title="✅ تم الخروج",
+            description="تم الخروج من الروم الصوتي بنجاح",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ خطأ في الخروج",
+            description=str(e),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+# ================== 1️⃣5️⃣ CHAT MANAGEMENT COMMANDS ==================
+@bot.command(name="مسح", aliases=["حذف", "clear", "purge"])
+@commands.has_permissions(manage_messages=True)
+async def clear_messages(ctx, amount: int = 10):
+    """مسح عدد محدد من الرسائل"""
+    try:
+        # Limit amount to prevent abuse
+        if amount < 1:
+            amount = 1
+        if amount > 100:
+            amount = 100
+        
+        # Delete messages
+        deleted = await ctx.channel.purge(limit=amount + 1)  # +1 for the command message
+        
+        # Send confirmation (will be deleted after 3 seconds)
+        embed = discord.Embed(
+            title="🗑️ تم المسح",
+            description=f"تم حذف {len(deleted) - 1} رسالة",
+            color=discord.Color.green()
+        )
+        msg = await ctx.send(embed=embed)
+        
+        # Delete confirmation after 3 seconds
+        await asyncio.sleep(3)
+        await msg.delete()
+        
+    except discord.Forbidden:
+        embed = discord.Embed(
+            title="❌ صلاحية مرفوضة",
+            description="لا أملك صلاحية حذف الرسائل",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    except discord.HTTPException as e:
+        embed = discord.Embed(
+            title="❌ خطأ في الحذف",
+            description=f"حدث خطأ: {str(e)}",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ خطأ غير متوقع",
+            description=str(e),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+@bot.command(name="اغلاق_الشات", aliases=["اقفال", "lock"])
+@commands.has_permissions(manage_channels=True)
+async def lock_chat(ctx):
+    """إغلاق الشات ومنع الكتابة"""
+    try:
+        channel = ctx.channel
+        
+        # Get @everyone role
+        everyone_role = ctx.guild.default_role
+        
+        # Check current permissions
+        current_perms = channel.overwrites_for(everyone_role)
+        
+        # Update permissions to deny send_messages
+        await channel.set_permissions(everyone_role, send_messages=False)
+        
+        embed = discord.Embed(
+            title="🔒 تم إغلاق الشات",
+            description=f"تم إغلاق {channel.mention} بنجاح",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+        
+        # Log action
+        log_embed = discord.Embed(
+            title="📝 تم إغلاق قناة",
+            description=f"تم إغلاق القناة بواسطة {ctx.author.mention}",
+            color=discord.Color.orange(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        log_embed.add_field(name="القناة", value=channel.mention)
+        log_embed.add_field(name="المشرف", value=ctx.author.mention)
+        await send_to_logs(ctx.guild, log_embed)
+        
+    except discord.Forbidden:
+        embed = discord.Embed(
+            title="❌ صلاحية مرفوضة",
+            description="لا أملك صلاحية إدارة القناة",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ خطأ في الإغلاق",
+            description=str(e),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+@bot.command(name="فتح_الشات", aliases=["فتح", "unlock"])
+@commands.has_permissions(manage_channels=True)
+async def unlock_chat(ctx):
+    """فتح الشات والسماح بالكتابة"""
+    try:
+        channel = ctx.channel
+        
+        # Get @everyone role
+        everyone_role = ctx.guild.default_role
+        
+        # Check current permissions
+        current_perms = channel.overwrites_for(everyone_role)
+        
+        # Update permissions to allow send_messages
+        await channel.set_permissions(everyone_role, send_messages=True)
+        
+        embed = discord.Embed(
+            title="🔓 تم فتح الشات",
+            description=f"تم فتح {channel.mention} بنجاح",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+        
+        # Log action
+        log_embed = discord.Embed(
+            title="📝 تم فتح قناة",
+            description=f"تم فتح القناة بواسطة {ctx.author.mention}",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        log_embed.add_field(name="القناة", value=channel.mention)
+        log_embed.add_field(name="المشرف", value=ctx.author.mention)
+        await send_to_logs(ctx.guild, log_embed)
+        
+    except discord.Forbidden:
+        embed = discord.Embed(
+            title="❌ صلاحية مرفوضة",
+            description="لا أملك صلاحية إدارة القناة",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ خطأ في الفتح",
+            description=str(e),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+# ================== 1️⃣6️⃣ HELPER COMMANDS ==================
+@bot.command(name="مساعدة", aliases=["help", "اوامر"])
+async def help_command(ctx):
+    """عرض جميع الأوامر المتاحة"""
+    embed = discord.Embed(
+        title="🛡️ Security BartX - جميع الأوامر",
+        description="نظام حماية متكامل للسيرفرات",
+        color=discord.Color.blue()
+    )
+    
+    # Security Commands
+    embed.add_field(
+        name="🔒 أوامر الحماية",
+        value="• `!الحماية` - قائمة أوامر الحماية\n• `!الحماية تشغيل` - تشغيل النظام\n• `!الحماية إيقاف` - إيقاف النظام\n• `!الحماية الحالة` - عرض الحالة",
+        inline=False
+    )
+    
+    # Whitelist Commands
+    embed.add_field(
+        name="👥 أوامر الوايت ليست",
+        value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`",
+        inline=False
+    )
+    
+    # Backup Commands
+    embed.add_field(
+        name="💾 أوامر النسخ الاحتياطي",
+        value="• `!الحماية نسخ_احتياطي`\n• `!الحماية استرجاع_الرتب`\n• `!الحماية استرجاع_الإعدادات`",
+        inline=False
+    )
+    
+    # Voice Commands
+    embed.add_field(
+        name="🎤 أوامر الصوت",
+        value="• `!دخول` - الدخول للروم الصوتي\n• `!خروج` - الخروج من الروم الصوتي",
+        inline=False
+    )
+    
+    # Chat Management Commands
+    embed.add_field(
+        name="🗑️ أوامر إدارة المحادثات",
+        value="• `!مسح [عدد]` - مسح الرسائل (1-100)\n• `!اغلاق_الشات` - إغلاق الشات\n• `!فتح_الشات` - فتح الشات",
+        inline=False
+    )
+    
+    embed.set_footer(text="Security BartX Ultimate Shield v3.0 | جميع الحقوق محفوظة")
+    await ctx.send(embed=embed)
+
+# ================== 1️⃣7️⃣ ERROR HANDLING ==================
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
@@ -824,14 +1134,27 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         embed = discord.Embed(
             title="⚠️ معطيات ناقصة",
-            description=f"يرجى إدخال جميع المعطيات المطلوبة\nاستخدم `!الحماية` للمساعدة",
+            description=f"يرجى إدخال جميع المعطيات المطلوبة\nاستخدم `!مساعدة` لعرض الأوامر",
             color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+    elif isinstance(error, commands.BadArgument):
+        embed = discord.Embed(
+            title="❌ معطيات غير صالحة",
+            description="يرجى التحقق من المعطيات المدخلة",
+            color=discord.Color.red()
         )
         await ctx.send(embed=embed)
     else:
         print(f"❌ خطأ غير معالج: {error}")
+        embed = discord.Embed(
+            title="❌ خطأ غير متوقع",
+            description="حدث خطأ أثناء تنفيذ الأمر",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
 
-# ================== 1️⃣5️⃣ RUN ==================
+# ================== 1️⃣8️⃣ RUN ==================
 if __name__ == "__main__":
     try:
         # Start web server
