@@ -8,6 +8,7 @@ from flask import Flask, request
 from threading import Thread
 import traceback
 import re
+from collections import defaultdict
 
 # ================== 1️⃣ KEEP ALIVE ==================
 app = Flask('')
@@ -49,32 +50,24 @@ def dashboard():
                 <h1>🛡️ Security BartX Control Panel</h1>
                 
                 <div class="alert">
-                    <h2>⚠️ وضع الحماية الشديد مفعل</h2>
-                    <p>النظام يحمي <strong>جميع الرتب والرومات</strong> بما فيها الرتب تحت البوت</p>
-                    <p>فقط المالك وأعضاء الوايت ليست يمكنهم التعديل</p>
+                    <h2>🚨 وضع الحماية المباشر مفعل</h2>
+                    <p>النظام يراقب <strong>جميع التغييرات مباشرة</strong> بدون استخدام Audit Logs</p>
+                    <p>يكتشف ويوقف أي تعديل على الرتب والرومات فوراً</p>
                 </div>
                 
                 <div class="box">
                     <h2>📊 حالة النظام</h2>
                     <div class="toggle">
-                        <span>🛡️ الحماية الشديدة:</span>
+                        <span>🛡️ الحماية المباشرة:</span>
                         <strong>{'✅ مفعلة' if cfg.get('security_enabled', True) else '❌ معطلة'}</strong>
                     </div>
                     <div class="toggle">
-                        <span>💣 Anti-Nuke:</span>
-                        <strong>{'✅ مفعل' if cfg.get('anti_nuke', True) else '❌ معطل'}</strong>
-                    </div>
-                    <div class="toggle">
-                        <span>🎖️ حماية الرتب الشاملة:</span>
+                        <span>🎖️ مراقبة الرتب:</span>
                         <strong>{'✅ مفعلة' if cfg.get('anti_role_edit', True) else '❌ معطلة'}</strong>
                     </div>
                     <div class="toggle">
-                        <span>📁 حماية الرومات الشاملة:</span>
+                        <span>📁 مراقبة الرومات:</span>
                         <strong>{'✅ مفعلة' if cfg.get('anti_channel_edit', True) else '❌ معطلة'}</strong>
-                    </div>
-                    <div class="toggle">
-                        <span>🚫 منع السبام:</span>
-                        <strong>{'✅ مفعل' if cfg.get('anti_spam', True) else '❌ معطل'}</strong>
                     </div>
                     <div class="toggle">
                         <span>👥 أعضاء الوايت ليست:</span>
@@ -84,21 +77,25 @@ def dashboard():
                         <span>🎖️ رتب الوايت ليست:</span>
                         <strong>{len(cfg.get('whitelist_roles', []))}</strong>
                     </div>
+                    <div class="toggle">
+                        <span>📊 التعديلات المكتشفة:</span>
+                        <strong id="detectedCount">جاري التحميل...</strong>
+                    </div>
                 </div>
                 
                 <div class="box">
                     <h2>🎮 التحكم السريع</h2>
                     <form action="/toggle_security" method="post">
-                        <button class="btn" type="submit">⚡ تبديل الحماية الشديدة</button>
+                        <button class="btn" type="submit">⚡ تبديل الحماية</button>
                     </form>
                     <form action="/toggle_role_protection" method="post">
-                        <button class="btn" type="submit">🎖️ تبديل حماية الرتب</button>
+                        <button class="btn" type="submit">🎖️ تبديل مراقبة الرتب</button>
                     </form>
                     <form action="/toggle_channel_protection" method="post">
-                        <button class="btn" type="submit">📁 تبديل حماية الرومات</button>
+                        <button class="btn" type="submit">📁 تبديل مراقبة الرومات</button>
                     </form>
-                    <form action="/toggle_nuke" method="post">
-                        <button class="btn" type="submit">💣 تبديل Anti-Nuke</button>
+                    <form action="/force_protect" method="post">
+                        <button class="btn" type="submit">🛡️ فرض الحماية الآن</button>
                     </form>
                     <form action="/backup_now" method="post">
                         <button class="btn" type="submit">💾 إنشاء نسخة احتياطية</button>
@@ -106,27 +103,55 @@ def dashboard():
                 </div>
                 
                 <div class="box">
-                    <h2>⚖️ إعدادات العقوبات</h2>
+                    <h2>⚖️ العقوبات الفورية</h2>
                     <div class="toggle">
-                        <span>التعديل على الرتب/الرومات:</span>
+                        <span>التعديل على الرتب:</span>
                         <strong>🔨 حظر فوري + إزالة رتب</strong>
                     </div>
                     <div class="toggle">
-                        <span>السببام والروابط:</span>
-                        <strong>⏰ تقييد تدريجي</strong>
+                        <span>التعديل على الرومات:</span>
+                        <strong>🔨 حظر فوري + إزالة رتب</strong>
                     </div>
-                    <p style="margin-top:10px;color:#94a3b8">التعديل على الرتب والرومات له عقوبة فورية أشد</p>
+                    <div class="toggle">
+                        <span>إنشاء رتب/رومات:</span>
+                        <strong>🔨 حظر فوري + حذف الشيء</strong>
+                    </div>
+                    <p style="margin-top:10px;color:#94a3b8">النظام لا يحتاج إلى صلاحيات Audit Logs</p>
                 </div>
                 
                 <p style="text-align:center;margin-top:30px;color:#94a3b8">
-                    © 2024 Security BartX Ultimate Shield v6.0
+                    © 2024 Security BartX Ultimate Shield v7.0
                 </p>
             </div>
+            
+            <script>
+                // تحديث عدد التعديلات المكتشفة
+                async function updateStats() {{
+                    try {{
+                        const response = await fetch('/api/stats');
+                        const data = await response.json();
+                        document.getElementById('detectedCount').innerText = data.detected_changes || '0';
+                    }} catch (error) {{
+                        console.error('خطأ في تحديث الإحصائيات:', error);
+                    }}
+                }}
+                
+                // تحديث كل 10 ثواني
+                setInterval(updateStats, 10000);
+                updateStats();
+            </script>
         </body>
         </html>
         """
     except Exception as e:
         return f"<h1>خطأ في التحميل</h1><p>{str(e)}</p>"
+
+@app.route("/api/stats")
+def api_stats():
+    try:
+        return {"detected_changes": len(detected_changes)}
+    except:
+        return {"detected_changes": 0}
 
 @app.route("/toggle_security", methods=['POST'])
 def toggle_security():
@@ -155,7 +180,7 @@ def toggle_security():
         <body>
             <div class="success">
                 <h2>✅ تم التغيير بنجاح</h2>
-                <p>الحماية الشديدة الآن: <strong>{new_state}</strong></p>
+                <p>الحماية المباشرة الآن: <strong>{new_state}</strong></p>
                 <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
             </div>
         </body>
@@ -191,7 +216,7 @@ def toggle_role_protection():
         <body>
             <div class="success">
                 <h2>✅ تم التغيير بنجاح</h2>
-                <p>حماية الرتب الشديدة الآن: <strong>{new_state}</strong></p>
+                <p>مراقبة الرتب الآن: <strong>{new_state}</strong></p>
                 <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
             </div>
         </body>
@@ -227,7 +252,7 @@ def toggle_channel_protection():
         <body>
             <div class="success">
                 <h2>✅ تم التغيير بنجاح</h2>
-                <p>حماية الرومات الشديدة الآن: <strong>{new_state}</strong></p>
+                <p>مراقبة الرومات الآن: <strong>{new_state}</strong></p>
                 <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
             </div>
         </body>
@@ -236,23 +261,16 @@ def toggle_channel_protection():
     except Exception as e:
         return f"<h1>خطأ</h1><p>{str(e)}</p>"
 
-@app.route("/toggle_nuke", methods=['POST'])
-def toggle_nuke():
+@app.route("/force_protect", methods=['POST'])
+def force_protect():
     try:
-        config_path = "security_config.json"
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        else:
-            cfg = DEFAULT_CONFIG
+        # إعادة تهيئة الحماية لجميع السيرفرات
+        for guild in bot.guilds:
+            asyncio.run_coroutine_threadsafe(
+                initialize_guild_protection(guild),
+                bot.loop
+            )
         
-        current_state = cfg.get("anti_nuke", True)
-        cfg["anti_nuke"] = not current_state
-        
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=4)
-        
-        new_state = "مفعل" if cfg["anti_nuke"] else "معطل"
         return f"""
         <html dir="rtl">
         <head><meta charset="UTF-8"><style>
@@ -262,8 +280,8 @@ def toggle_nuke():
         </style></head>
         <body>
             <div class="success">
-                <h2>✅ تم التغيير بنجاح</h2>
-                <p>Anti-Nuke الآن: <strong>{new_state}</strong></p>
+                <h2>✅ تم فرض الحماية</h2>
+                <p>تم إعادة تهيئة الحماية لجميع السيرفرات</p>
                 <a href='/dashboard'><button class="btn">↩️ رجوع للوحة التحكم</button></a>
             </div>
         </body>
@@ -326,7 +344,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 # ================== 3️⃣ JSON CONFIG ==================
 CONFIG_FILE = "security_config.json"
 BACKUP_DIR = "backups"
-WARNINGS_FILE = "warnings.json"
+PROTECTION_FILE = "protection_data.json"
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
 DEFAULT_CONFIG = {
@@ -347,10 +365,9 @@ DEFAULT_CONFIG = {
     "anti_images": True,
     "anti_role_edit": True,
     "anti_channel_edit": True,
-    "max_warnings": 5,
-    "strict_mode": True,  # وضع الحماية الشديد
-    "role_protection_level": "all",  # حماية جميع الرتب
-    "channel_protection_level": "all"  # حماية جميع الرومات
+    "direct_protection": True,  # الحماية المباشرة بدون Audit Logs
+    "auto_restore": True,      # الاستعادة التلقائية
+    "instant_ban": True        # الحظر الفوري
 }
 
 def load_config():
@@ -384,10 +401,9 @@ def save_config():
             "anti_images": ANTI_IMAGES_ENABLED,
             "anti_role_edit": ANTI_ROLE_EDIT_ENABLED,
             "anti_channel_edit": ANTI_CHANNEL_EDIT_ENABLED,
-            "max_warnings": MAX_WARNINGS,
-            "strict_mode": STRICT_MODE,
-            "role_protection_level": "all",
-            "channel_protection_level": "all"
+            "direct_protection": DIRECT_PROTECTION,
+            "auto_restore": AUTO_RESTORE,
+            "instant_ban": INSTANT_BAN
         }
         
         if BACKUP_ENABLED:
@@ -404,22 +420,75 @@ def save_config():
     except Exception as e:
         print(f"❌ خطأ في حفظ الإعدادات: {e}")
 
-def load_warnings():
+def load_protection_data():
+    """تحميل بيانات الحماية المحفوظة"""
     try:
-        if not os.path.exists(WARNINGS_FILE):
-            return {}
-        with open(WARNINGS_FILE, "r", encoding="utf-8") as f:
+        if not os.path.exists(PROTECTION_FILE):
+            return {"roles": {}, "channels": {}, "guilds": {}}
+        
+        with open(PROTECTION_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        print(f"❌ خطأ في تحميل التحذيرات: {e}")
-        return {}
+        print(f"❌ خطأ في تحميل بيانات الحماية: {e}")
+        return {"roles": {}, "channels": {}, "guilds": {}}
 
-def save_warnings(warnings_data):
+def save_protection_data():
+    """حفظ بيانات الحماية"""
     try:
-        with open(WARNINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(warnings_data, f, indent=4)
+        # جمع بيانات الرتب المحمية
+        roles_data = {}
+        for guild_id, roles in protected_roles.items():
+            roles_data[str(guild_id)] = []
+            for role_id in roles:
+                try:
+                    guild = bot.get_guild(guild_id)
+                    if guild:
+                        role = guild.get_role(role_id)
+                        if role:
+                            roles_data[str(guild_id)].append({
+                                "id": role_id,
+                                "name": role.name,
+                                "color": role.color.value,
+                                "permissions": role.permissions.value,
+                                "position": role.position,
+                                "hoist": role.hoist,
+                                "mentionable": role.mentionable
+                            })
+                except:
+                    continue
+        
+        # جمع بيانات الرومات المحمية
+        channels_data = {}
+        for guild_id, channels in protected_channels.items():
+            channels_data[str(guild_id)] = []
+            for channel_id in channels:
+                try:
+                    guild = bot.get_guild(guild_id)
+                    if guild:
+                        channel = guild.get_channel(channel_id)
+                        if channel:
+                            channels_data[str(guild_id)].append({
+                                "id": channel_id,
+                                "name": channel.name,
+                                "type": str(channel.type),
+                                "position": channel.position,
+                                "category_id": channel.category_id
+                            })
+                except:
+                    continue
+        
+        data = {
+            "roles": roles_data,
+            "channels": channels_data,
+            "last_update": datetime.datetime.now().isoformat()
+        }
+        
+        with open(PROTECTION_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        
+        print("✅ تم حفظ بيانات الحماية")
     except Exception as e:
-        print(f"❌ خطأ في حفظ التحذيرات: {e}")
+        print(f"❌ خطأ في حفظ بيانات الحماية: {e}")
 
 # Load initial config
 config = load_config()
@@ -439,25 +508,22 @@ ANTI_LINKS_ENABLED = config.get("anti_links", True)
 ANTI_IMAGES_ENABLED = config.get("anti_images", True)
 ANTI_ROLE_EDIT_ENABLED = config.get("anti_role_edit", True)
 ANTI_CHANNEL_EDIT_ENABLED = config.get("anti_channel_edit", True)
-MAX_WARNINGS = config.get("max_warnings", 5)
-STRICT_MODE = config.get("strict_mode", True)
+DIRECT_PROTECTION = config.get("direct_protection", True)
+AUTO_RESTORE = config.get("auto_restore", True)
+INSTANT_BAN = config.get("instant_ban", True)
 
 # ================== 4️⃣ GLOBAL STATE ==================
 rate_cache = {}
 nuke_tracker = {}
 spam_tracker = {}
-warnings = load_warnings()
 voice_connections = {}
-protected_roles = set()  # لتخزين الرتب المحمية
-protected_channels = set()  # لتخزين الرومات المحمية
+detected_changes = []
 
-# URL patterns
-URL_PATTERNS = [
-    r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-    r'www\.(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-    r'discord\.gg/[a-zA-Z0-9]+',
-    r'discord\.com/invite/[a-zA-Z0-9]+'
-]
+# تخزين الحالة الأصلية للرتب والرومات
+protected_roles = defaultdict(set)  # {guild_id: {role_ids}}
+protected_channels = defaultdict(set)  # {guild_id: {channel_ids}}
+role_backups = defaultdict(dict)  # {guild_id: {role_id: role_data}}
+channel_backups = defaultdict(dict)  # {guild_id: {channel_id: channel_data}}
 
 # ================== 5️⃣ READY & INITIALIZATION ==================
 @bot.event
@@ -468,36 +534,58 @@ async def on_ready():
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="حماية السيرفر | !الحماية"
+            name="حماية مباشرة | !الحماية"
         )
     )
     
+    # تحميل بيانات الحماية المحفوظة
+    protection_data = load_protection_data()
+    
     # تهيئة الحماية لجميع السيرفرات
     for guild in bot.guilds:
-        await initialize_protection(guild)
+        await initialize_guild_protection(guild, protection_data)
     
     if BACKUP_ENABLED:
         auto_backup.start()
+        protection_backup.start()
         print(f"✅ نظام النسخ الاحتياطي مفعل")
     
-    print("✅ وضع الحماية الشديد مفعل - يحمي جميع الرتب والرومات")
-    print("✅ فقط المالك والوايت ليست يمكنهم التعديل")
+    print("✅ وضع الحماية المباشر مفعل - لا يحتاج إلى صلاحيات Audit Logs")
+    print("✅ النظام يراقب جميع التغييرات مباشرة")
 
-async def initialize_protection(guild):
+async def initialize_guild_protection(guild, protection_data=None):
     """تهيئة الحماية للسيرفر"""
     try:
-        # تحديد الرتب المحمية (جميع الرتب ما عدا @everyone)
-        for role in guild.roles:
-            if not role.is_default():
-                protected_roles.add(role.id)
+        print(f"🔄 تهيئة الحماية لسيرفر: {guild.name}")
         
-        # تحديد الرومات المحمية (جميع الرومات)
+        # حفظ الحالة الأصلية للرتب
+        for role in guild.roles:
+            if not role.is_default():  # تخطي رتبة @everyone
+                protected_roles[guild.id].add(role.id)
+                role_backups[guild.id][role.id] = {
+                    "name": role.name,
+                    "color": role.color.value,
+                    "permissions": role.permissions.value,
+                    "position": role.position,
+                    "hoist": role.hoist,
+                    "mentionable": role.mentionable,
+                    "timestamp": datetime.datetime.now().isoformat()
+                }
+        
+        # حفظ الحالة الأصلية للرومات
         for channel in guild.channels:
-            protected_channels.add(channel.id)
+            protected_channels[guild.id].add(channel.id)
+            channel_backups[guild.id][channel.id] = {
+                "name": channel.name,
+                "type": str(channel.type),
+                "position": channel.position,
+                "category_id": channel.category_id,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
         
         print(f"✅ تم تهيئة الحماية لسيرفر: {guild.name}")
-        print(f"   - الرتب المحمية: {len(protected_roles)}")
-        print(f"   - الرومات المحمية: {len(protected_channels)}")
+        print(f"   - الرتب المحمية: {len(protected_roles[guild.id])}")
+        print(f"   - الرومات المحمية: {len(protected_channels[guild.id])}")
         
     except Exception as e:
         print(f"❌ خطأ في تهيئة الحماية لسيرفر {guild.name}: {e}")
@@ -542,41 +630,87 @@ def is_whitelisted(member):
     
     return False
 
-def has_permission_to_modify(member, target_type="role"):
-    """فحص إذا كان لدى المستخدم صلاحية للتعديل"""
-    # إذا كان معفي، يسمح له
-    if is_whitelisted(member):
-        return True
-    
-    # في وضع الحماية الشديد، لا أحد يستطيع التعديل إلا المعفيين
-    if STRICT_MODE:
-        return False
-    
-    # فحص الصلاحيات التقليدية
-    if target_type == "role":
-        return member.guild_permissions.manage_roles
-    elif target_type == "channel":
-        return member.guild_permissions.manage_channels
-    elif target_type == "guild":
-        return member.guild_permissions.manage_guild
-    
-    return False
-
-# ================== 8️⃣ STRICT PUNISHMENT SYSTEM ==================
-async def apply_strict_punishment(member, violation_type, target=None):
-    """تطبيق عقوبة صارمة على من يتعدى على الرتب/الرومات"""
+async def find_suspect(guild, action_type, target_id=None):
+    """محاولة العثور على المشتبه به بدون Audit Logs"""
     try:
-        reason_messages = {
-            "role_create": "محاولة إنشاء رتبة بدون صلاحية",
-            "role_delete": "محاولة حذف رتبة بدون صلاحية",
-            "role_update": "محاولة تعديل رتبة بدون صلاحية",
-            "channel_create": "محاولة إنشاء روم بدون صلاحية",
-            "channel_delete": "محاولة حذف روم بدون صلاحية",
-            "channel_update": "محاولة تعديل روم بدون صلاحية"
+        # طريقة بسيطة: البحث في الأعضاء النشطين
+        for member in guild.members:
+            if is_whitelisted(member):
+                continue
+            
+            # فحص إذا كان لدى العضو صلاحيات للتعديل
+            if action_type == "role":
+                if member.guild_permissions.manage_roles:
+                    return member
+            elif action_type == "channel":
+                if member.guild_permissions.manage_channels:
+                    return member
+        
+        return None
+    except:
+        return None
+
+# ================== 8️⃣ DIRECT PROTECTION SYSTEM ==================
+async def detect_and_respond(guild, change_type, target=None, old_data=None, new_data=None):
+    """اكتشاف التغييرات والاستجابة مباشرة"""
+    if not SECURITY_ENABLED:
+        return
+    
+    # البحث عن المشتبه به
+    suspect = await find_suspect(guild, "role" if "role" in change_type else "channel")
+    
+    if suspect and not is_whitelisted(suspect):
+        await handle_detected_change(guild, suspect, change_type, target, old_data, new_data)
+
+async def handle_detected_change(guild, member, change_type, target=None, old_data=None, new_data=None):
+    """معالجة التغيير المكتشف"""
+    try:
+        # تسجيل التغيير
+        change_record = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "guild": guild.name,
+            "guild_id": guild.id,
+            "member": f"{member.name}#{member.discriminator}",
+            "member_id": member.id,
+            "change_type": change_type,
+            "target": target.name if target else None,
+            "target_id": target.id if target else None
         }
         
-        reason = reason_messages.get(violation_type, "تعديل غير مصرح به")
+        detected_changes.append(change_record)
+        if len(detected_changes) > 100:
+            detected_changes.pop(0)
         
+        reason_messages = {
+            "role_create": "إنشاء رتبة جديدة بدون صلاحية",
+            "role_delete": "حذف رتبة بدون صلاحية",
+            "role_update": "تعديل رتبة بدون صلاحية",
+            "channel_create": "إنشاء روم جديد بدون صلاحية",
+            "channel_delete": "حذف روم بدون صلاحية",
+            "channel_update": "تعديل روم بدون صلاحية"
+        }
+        
+        reason = reason_messages.get(change_type, "تعديل غير مصرح به")
+        
+        # تطبيق العقوبة الفورية
+        await apply_instant_punishment(member, reason, target)
+        
+        # محاولة الاستعادة التلقائية
+        if AUTO_RESTORE:
+            await try_auto_restore(guild, change_type, target, old_data)
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ خطأ في معالجة التغيير: {e}")
+        return False
+
+async def apply_instant_punishment(member, reason, target=None):
+    """تطبيق عقوبة فورية"""
+    if not INSTANT_BAN:
+        return
+    
+    try:
         # 1. إزالة جميع الرتب من المستخدم
         try:
             if member.guild.me.guild_permissions.manage_roles:
@@ -592,127 +726,185 @@ async def apply_strict_punishment(member, violation_type, target=None):
                     delete_message_days=1
                 )
         except:
-            pass
+            # إذا لم نستطع الحظر، نحاول الطرد
+            try:
+                if member.guild.me.guild_permissions.kick_members:
+                    await member.kick(reason=f"عقوبة: {reason}")
+            except:
+                pass
         
-        # 3. إرسال إشعار إلى المالك
-        try:
-            owner = member.guild.owner
-            if owner:
-                embed = discord.Embed(
-                    title="🚨 هجوم أمني خطير",
-                    description=f"تم اكتشاف هجوم على سيرفر **{member.guild.name}**",
-                    color=discord.Color.red(),
-                    timestamp=datetime.datetime.utcnow()
-                )
-                embed.add_field(name="👤 المهاجم", value=f"{member} ({member.id})", inline=False)
-                embed.add_field(name="🎯 نوع الهجوم", value=reason, inline=False)
-                embed.add_field(name="🛡️ الإجراء", value="تم حظره وإزالة جميع رتبه", inline=False)
-                embed.set_footer(text="Security BartX Ultimate Shield")
-                
-                await owner.send(embed=embed)
-        except:
-            pass
-        
-        # 4. تسجيل في السجلات
-        embed = discord.Embed(
-            title="🔨 عقوبة فورية تطبيق",
-            description="تم تطبيق عقوبة فورية على متعدي",
+        # 3. إرسال إشعار
+        alert_embed = discord.Embed(
+            title="🚨 عقوبة فورية تطبيق",
+            description=f"تم اكتشاف وتوقيف تعديل غير مصرح به",
             color=discord.Color.red(),
             timestamp=datetime.datetime.utcnow()
         )
-        embed.add_field(name="👤 المستخدم", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="🎯 الانتهاك", value=reason, inline=False)
-        embed.add_field(name="⚖️ العقوبة", value="حظر فوري + إزالة جميع الرتب", inline=False)
+        alert_embed.add_field(name="👤 المتعدي", value=f"{member.mention} ({member.id})", inline=False)
+        alert_embed.add_field(name="📝 السبب", value=reason, inline=False)
         
         if target:
             if isinstance(target, discord.Role):
-                embed.add_field(name="🎖️ الرتبة المستهدفة", value=target.name, inline=False)
+                alert_embed.add_field(name="🎖️ الرتبة", value=target.name, inline=False)
             elif isinstance(target, discord.abc.GuildChannel):
-                embed.add_field(name="📁 الروم المستهدف", value=target.name, inline=False)
+                alert_embed.add_field(name="📁 الروم", value=target.name, inline=False)
         
-        await send_to_logs(member.guild, embed)
+        alert_embed.add_field(name="⚖️ العقوبة", value="حظر فوري + إزالة جميع الرتب", inline=False)
         
-        # 5. إشعار في الشات الرئيسي
+        await send_to_logs(member.guild, alert_embed)
+        
+        # 4. إشعار للمالك
         try:
-            alert_embed = discord.Embed(
-                title="🚨 تم تطبيق عقوبة أمنية",
-                description=f"تم حظر {member.mention} بسبب تعديل غير مصرح به",
-                color=discord.Color.dark_red()
-            )
-            alert_embed.add_field(name="السبب", value=reason, inline=False)
-            alert_embed.add_field(name="العقوبة", value="حظر دائم", inline=False)
-            
-            if member.guild.system_channel:
-                await member.guild.system_channel.send(embed=alert_embed)
+            owner = member.guild.owner
+            if owner:
+                dm_embed = discord.Embed(
+                    title="🚨 تنبيه أمني عاجل",
+                    description=f"تم اكتشاف هجوم على سيرفرك **{member.guild.name}**",
+                    color=discord.Color.dark_red(),
+                    timestamp=datetime.datetime.utcnow()
+                )
+                dm_embed.add_field(name="👤 المهاجم", value=f"{member} ({member.id})", inline=False)
+                dm_embed.add_field(name="🎯 الهجوم", value=reason, inline=False)
+                dm_embed.add_field(name="🛡️ الإجراء", value="تم حظره وإزالة جميع رتبه", inline=False)
+                dm_embed.set_footer(text="Security BartX Ultimate Shield")
+                
+                await owner.send(embed=dm_embed)
         except:
             pass
         
-        return True
-        
     except Exception as e:
-        print(f"❌ خطأ في تطبيق العقوبة الصارمة: {e}")
-        return False
+        print(f"❌ خطأ في تطبيق العقوبة: {e}")
 
-# ================== 9️⃣ ROLE PROTECTION (STRICT) ==================
+async def try_auto_restore(guild, change_type, target, old_data):
+    """محاولة الاستعادة التلقائية"""
+    try:
+        if change_type == "role_update" and target and old_data:
+            if guild.me.guild_permissions.manage_roles:
+                await target.edit(
+                    name=old_data.get("name", target.name),
+                    color=discord.Color(old_data.get("color", target.color.value)),
+                    hoist=old_data.get("hoist", target.hoist),
+                    mentionable=old_data.get("mentionable", target.mentionable),
+                    reason="استعادة تلقائية بعد تعديل غير مصرح"
+                )
+        
+        elif change_type == "channel_update" and target and old_data:
+            if guild.me.guild_permissions.manage_channels:
+                await target.edit(
+                    name=old_data.get("name", target.name),
+                    reason="استعادة تلقائية بعد تعديل غير مصرح"
+                )
+        
+        elif change_type == "role_delete":
+            # يمكن محاولة إنشاء الرتبة مرة أخرى
+            pass
+        
+        elif change_type == "channel_delete":
+            # يمكن محاولة إنشاء الروم مرة أخرى
+            pass
+            
+    except Exception as e:
+        print(f"❌ خطأ في الاستعادة التلقائية: {e}")
+
+# ================== 9️⃣ PERIODIC CHECKING ==================
+@tasks.loop(minutes=1)
+async def periodic_protection_check():
+    """فحص دوري للحماية"""
+    if not SECURITY_ENABLED:
+        return
+    
+    for guild in bot.guilds:
+        try:
+            await check_guild_protection(guild)
+        except Exception as e:
+            print(f"❌ خطأ في الفحص الدوري لسيرفر {guild.name}: {e}")
+
+async def check_guild_protection(guild):
+    """فحص حماية السيرفر"""
+    try:
+        # فحص الرتب
+        current_roles = {role.id for role in guild.roles if not role.is_default()}
+        protected = protected_roles.get(guild.id, set())
+        
+        # اكتشاف الرتب المحذوفة
+        deleted_roles = protected - current_roles
+        for role_id in deleted_roles:
+            if role_id in role_backups.get(guild.id, {}):
+                await detect_and_respond(guild, "role_delete")
+                protected_roles[guild.id].discard(role_id)
+        
+        # اكتشاف الرتب الجديدة
+        new_roles = current_roles - protected
+        for role_id in new_roles:
+            role = guild.get_role(role_id)
+            if role:
+                protected_roles[guild.id].add(role_id)
+                await detect_and_respond(guild, "role_create", role)
+        
+        # فحص الرومات
+        current_channels = {channel.id for channel in guild.channels}
+        protected_ch = protected_channels.get(guild.id, set())
+        
+        # اكتشاف الرومات المحذوفة
+        deleted_channels = protected_ch - current_channels
+        for channel_id in deleted_channels:
+            await detect_and_respond(guild, "channel_delete")
+            protected_channels[guild.id].discard(channel_id)
+        
+        # اكتشاف الرومات الجديدة
+        new_channels = current_channels - protected_ch
+        for channel_id in new_channels:
+            channel = guild.get_channel(channel_id)
+            if channel:
+                protected_channels[guild.id].add(channel_id)
+                await detect_and_respond(guild, "channel_create", channel)
+                
+    except Exception as e:
+        print(f"❌ خطأ في فحص حماية سيرفر {guild.name}: {e}")
+
+@tasks.loop(minutes=5)
+async def protection_backup():
+    """نسخ احتياطي دوري لبيانات الحماية"""
+    save_protection_data()
+
+# ================== 🔟 EVENT-BASED PROTECTION ==================
 @bot.event
 async def on_guild_role_create(role):
-    """اكتشاف إنشاء رتب جديدة - حماية شاملة"""
+    """اكتشاف إنشاء رتب جديدة"""
     if not SECURITY_ENABLED or not ANTI_ROLE_EDIT_ENABLED:
         return
     
-    # إضافة الرتبة الجديدة إلى القائمة المحمية
-    protected_roles.add(role.id)
+    # إضافة إلى القائمة المحمية
+    protected_roles[role.guild.id].add(role.id)
     
-    mod = await safe_audit_log(role.guild, discord.AuditLogAction.role_create, role.id)
-    if not mod:
-        return
+    # تسجيل النسخة الاحتياطية
+    role_backups[role.guild.id][role.id] = {
+        "name": role.name,
+        "color": role.color.value,
+        "permissions": role.permissions.value,
+        "position": role.position,
+        "hoist": role.hoist,
+        "mentionable": role.mentionable,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
     
-    # فحص إذا كان المعفي
-    if is_whitelisted(mod):
-        return
-    
-    # فحص إذا لديه صلاحية (في الوضع غير الصارم)
-    if not STRICT_MODE and has_permission_to_modify(mod, "role"):
-        return
-    
-    # تطبيق العقوبة الفورية
-    await apply_strict_punishment(mod, "role_create", role)
-    
-    # محاولة حذف الرتبة المحدثة
-    try:
-        if role.guild.me.guild_permissions.manage_roles:
-            await role.delete(reason="إنشاء رتبة بدون صلاحية - حذف تلقائي")
-    except:
-        pass
+    await detect_and_respond(role.guild, "role_create", role)
 
 @bot.event
 async def on_guild_role_delete(role):
-    """اكتشاف حذف رتب - حماية شاملة"""
+    """اكتشاف حذف رتب"""
     if not SECURITY_ENABLED or not ANTI_ROLE_EDIT_ENABLED:
         return
     
-    # إزالة الرتبة من القائمة المحمية
-    if role.id in protected_roles:
-        protected_roles.remove(role.id)
+    # إزالة من القائمة المحمية
+    if role.id in protected_roles.get(role.guild.id, set()):
+        protected_roles[role.guild.id].discard(role.id)
     
-    mod = await safe_audit_log(role.guild, discord.AuditLogAction.role_delete, role.id)
-    if not mod:
-        return
-    
-    if is_whitelisted(mod):
-        return
-    
-    if not STRICT_MODE and has_permission_to_modify(mod, "role"):
-        return
-    
-    await apply_strict_punishment(mod, "role_delete", role)
-    
-    # محاولة استعادة الرتبة من النسخة الاحتياطية
-    await try_restore_role(role.guild, role.name)
+    await detect_and_respond(role.guild, "role_delete")
 
 @bot.event
 async def on_guild_role_update(before, after):
-    """اكتشاف تعديل الرتب - حماية شاملة"""
+    """اكتشاف تعديل الرتب"""
     if not SECURITY_ENABLED or not ANTI_ROLE_EDIT_ENABLED:
         return
     
@@ -724,193 +916,99 @@ async def on_guild_role_update(before, after):
         before.mentionable == after.mentionable):
         return
     
-    mod = await safe_audit_log(after.guild, discord.AuditLogAction.role_update, after.id)
-    if not mod:
-        return
+    # حفظ البيانات القديمة
+    old_data = {
+        "name": before.name,
+        "color": before.color.value,
+        "permissions": before.permissions.value,
+        "hoist": before.hoist,
+        "mentionable": before.mentionable
+    }
     
-    if is_whitelisted(mod):
-        return
-    
-    if not STRICT_MODE and has_permission_to_modify(mod, "role"):
-        return
-    
-    await apply_strict_punishment(mod, "role_update", after)
-    
-    # محاولة استعادة التعديلات
-    try:
-        if after.guild.me.guild_permissions.manage_roles:
-            await after.edit(
-                name=before.name,
-                permissions=before.permissions,
-                color=before.color,
-                hoist=before.hoist,
-                mentionable=before.mentionable,
-                reason="استعادة تعديل رتبة غير مصرح به"
-            )
-    except:
-        pass
+    await detect_and_respond(after.guild, "role_update", after, old_data)
 
-async def try_restore_role(guild, role_name):
-    """محاولة استعادة رتبة محذوفة"""
-    try:
-        # هنا يمكن إضافة منطق استعادة الرتب من النسخ الاحتياطية
-        pass
-    except:
-        pass
-
-# ================== 🔟 CHANNEL PROTECTION (STRICT) ==================
 @bot.event
 async def on_guild_channel_create(channel):
-    """اكتشاف إنشاء رومات جديدة - حماية شاملة"""
+    """اكتشاف إنشاء رومات جديدة"""
     if not SECURITY_ENABLED or not ANTI_CHANNEL_EDIT_ENABLED:
         return
     
-    # إضافة الروم الجديد إلى القائمة المحمية
-    protected_channels.add(channel.id)
+    # إضافة إلى القائمة المحمية
+    protected_channels[channel.guild.id].add(channel.id)
     
-    mod = await safe_audit_log(channel.guild, discord.AuditLogAction.channel_create, channel.id)
-    if not mod:
-        return
+    # تسجيل النسخة الاحتياطية
+    channel_backups[channel.guild.id][channel.id] = {
+        "name": channel.name,
+        "type": str(channel.type),
+        "position": channel.position,
+        "category_id": channel.category_id,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
     
-    if is_whitelisted(mod):
-        return
-    
-    if not STRICT_MODE and has_permission_to_modify(mod, "channel"):
-        return
-    
-    await apply_strict_punishment(mod, "channel_create", channel)
-    
-    # محاولة حذف الروم المحدث
-    try:
-        if channel.guild.me.guild_permissions.manage_channels:
-            await channel.delete(reason="إنشاء روم بدون صلاحية - حذف تلقائي")
-    except:
-        pass
+    await detect_and_respond(channel.guild, "channel_create", channel)
 
 @bot.event
 async def on_guild_channel_delete(channel):
-    """اكتشاف حذف رومات - حماية شاملة"""
+    """اكتشاف حذف رومات"""
     if not SECURITY_ENABLED or not ANTI_CHANNEL_EDIT_ENABLED:
         return
     
-    # إزالة الروم من القائمة المحمية
-    if channel.id in protected_channels:
-        protected_channels.remove(channel.id)
+    # إزالة من القائمة المحمية
+    if channel.id in protected_channels.get(channel.guild.id, set()):
+        protected_channels[channel.guild.id].discard(channel.id)
     
-    mod = await safe_audit_log(channel.guild, discord.AuditLogAction.channel_delete, channel.id)
-    if not mod:
-        return
-    
-    if is_whitelisted(mod):
-        return
-    
-    if not STRICT_MODE and has_permission_to_modify(mod, "channel"):
-        return
-    
-    await apply_strict_punishment(mod, "channel_delete", channel)
+    await detect_and_respond(channel.guild, "channel_delete")
 
 @bot.event
 async def on_guild_channel_update(before, after):
-    """اكتشاف تعديل الرومات - حماية شاملة"""
+    """اكتشاف تعديل الرومات"""
     if not SECURITY_ENABLED or not ANTI_CHANNEL_EDIT_ENABLED:
         return
     
     # تخطي إذا لم يكن هناك تغيير حقيقي
-    if (before.name == after.name and 
-        before.position == after.position and
-        before.category == after.category):
+    if before.name == after.name and before.position == after.position:
         return
     
-    mod = await safe_audit_log(after.guild, discord.AuditLogAction.channel_update, after.id)
-    if not mod:
-        return
+    # حفظ البيانات القديمة
+    old_data = {
+        "name": before.name,
+        "position": before.position,
+        "category_id": before.category_id
+    }
     
-    if is_whitelisted(mod):
-        return
-    
-    if not STRICT_MODE and has_permission_to_modify(mod, "channel"):
-        return
-    
-    await apply_strict_punishment(mod, "channel_update", after)
-    
-    # محاولة استعادة التعديلات
-    try:
-        if after.guild.me.guild_permissions.manage_channels:
-            await after.edit(
-                name=before.name,
-                position=before.position,
-                category=before.category,
-                reason="استعادة تعديل روم غير مصرح به"
-            )
-    except:
-        pass
+    await detect_and_respond(after.guild, "channel_update", after, old_data)
 
-# ================== 1️⃣1️⃣ AUDIT LOG HELPER ==================
-async def safe_audit_log(guild, action, target_id):
-    try:
-        async for entry in guild.audit_logs(limit=5, action=action):
-            if entry.target and getattr(entry.target, 'id', None) == target_id:
-                if (datetime.datetime.utcnow() - entry.created_at).total_seconds() < 5:
-                    return entry.user
-        return None
-    except discord.Forbidden:
-        print(f"⛔ لا يوجد صلاحية لسجلات التدقيق في {guild.name}")
-        return None
-    except Exception as e:
-        print(f"⚠️ خطأ في سجلات التدقيق: {e}")
-        return None
-
-# ================== 1️⃣2️⃣ MESSAGE FILTERING ==================
-@bot.event
-async def on_message(message):
-    if message.author.bot or not message.guild:
-        return
-    
-    await bot.process_commands(message)
-    
-    if not SECURITY_ENABLED:
-        return
-    
-    # نظام العقوبات المخفف للرسائل فقط
-    if is_whitelisted(message.author):
-        return
-    
-    # هنا يمكن إضافة فلترة الرسائل (سبام، روابط، صور)
-    # مع عقوبات مخففة (تقييد مؤقت، تحذيرات)
-    
-    pass
-
-# ================== 1️⃣3️⃣ ADMIN COMMANDS ==================
+# ================== 1️⃣1️⃣ ADMIN COMMANDS ==================
 @bot.group()
 @commands.has_permissions(administrator=True)
 async def الحماية(ctx):
     if ctx.invoked_subcommand is None:
         embed = discord.Embed(
-            title="🛡️ نظام الحماية الشديد",
-            description="نظام حماية صارم يحمي جميع الرتب والرومات",
+            title="🛡️ نظام الحماية المباشر",
+            description="نظام حماية يراقب جميع التغييرات مباشرة بدون Audit Logs",
             color=discord.Color.dark_red()
         )
         embed.add_field(
-            name="🚨 وضع الحماية الشديد",
-            value="• يحمي **جميع الرتب** بما فيها الرتب تحت البوت\n• يحمي **جميع الرومات** من التعديل\n• فقط المالك والوايت ليست معفيون",
+            name="🚨 كيف يعمل النظام",
+            value="• يراقب **جميع التغييرات** في الرتب والرومات مباشرة\n• **لا يحتاج** إلى صلاحيات Audit Logs\n• يكتشف التعديلات **فور حدوثها**\n• يتصرف **تلقائياً** بدون تدخل",
             inline=False
         )
         embed.add_field(
             name="⚖️ العقوبات الفورية",
-            value="• تعديل الرتب/الرومات: **حظر فوري + إزالة رتب**\n• يتم إرسال إشعار فوري للمالك\n• تسجيل كامل في السجلات",
+            value="• **حظر فوري** لأي متعدي\n• **إزالة جميع رتب** المهاجم\n• **إشعار فوري** للمالك\n• **استعادة تلقائية** للتعديلات",
             inline=False
         )
         embed.add_field(
             name="⚙️ الأوامر الرئيسية",
-            value="• `!الحماية تشغيل/إيقاف` - الحماية الشديدة\n• `!الحماية الحالة` - عرض الحالة\n• `!الحماية قائمة_الحماية` - عرض المحمي",
+            value="• `!الحماية تشغيل/إيقاف` - تشغيل/إيقاف النظام\n• `!الحماية الحالة` - عرض حالة الحماية\n• `!الحماية التعديلات` - عرض التعديلات المكتشفة\n• `!الحماية تحديث` - إعادة تهيئة الحماية",
             inline=False
         )
         embed.add_field(
             name="👥 إدارة الوايت ليست",
-            value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`",
+            value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست القائمة`",
             inline=False
         )
-        embed.set_footer(text="Security BartX Ultimate Shield v6.0 - وضع الحماية الشديد")
+        embed.set_footer(text="Security BartX Ultimate Shield v7.0 - الحماية المباشرة")
         await ctx.send(embed=embed)
 
 @الحماية.command()
@@ -918,19 +1016,22 @@ async def تشغيل(ctx):
     global SECURITY_ENABLED
     SECURITY_ENABLED = True
     
-    # تهيئة الحماية لهذا السيرفر
-    await initialize_protection(ctx.guild)
+    # تهيئة الحماية
+    await initialize_guild_protection(ctx.guild)
+    
+    # بدء المهام الدورية
+    periodic_protection_check.start()
     
     save_config()
     
     embed = discord.Embed(
-        title="🔐 تم تشغيل الحماية الشديدة",
-        description="**جميع الرتب والرومات الآن تحت الحماية**\n\n⚠️ **تحذير:**\n- أي محاولة تعديل على الرتب أو الرومات ستؤدي إلى حظر فوري\n- فقط المالك وأعضاء الوايت ليست معفيون\n- يتم إرسال إشعار فوري للمالك عند أي هجوم",
+        title="🔐 تم تشغيل الحماية المباشرة",
+        description="**النظام الآن يراقب جميع التغييرات مباشرة**\n\n🎯 **مميزات النظام:**\n- يراقب إنشاء/حذف/تعديل الرتب والرومات\n- لا يحتاج إلى صلاحيات Audit Logs\n- يستجيب فوراً لأي تعديل\n- يطبق عقوبات فورية",
         color=discord.Color.green()
     )
-    embed.add_field(name="🎖️ الرتب المحمية", value="جميع الرتب بما فيها الرتب تحت البوت", inline=False)
-    embed.add_field(name="📁 الرومات المحمية", value="جميع الرومات النصية والصوتية", inline=False)
-    embed.add_field(name="⚖️ العقوبة", value="حظر فوري + إزالة جميع الرتب + إشعار للمالك", inline=False)
+    embed.add_field(name="📊 طريقة العمل", value="المراقبة المباشرة + الفحص الدوري", inline=False)
+    embed.add_field(name="⚡ سرعة الاستجابة", value="فورية - خلال ثواني", inline=False)
+    embed.add_field(name="🛡️ الحماية", value="جميع الرتب والرومات", inline=False)
     
     await ctx.send(embed=embed)
 
@@ -938,11 +1039,15 @@ async def تشغيل(ctx):
 async def إيقاف(ctx):
     global SECURITY_ENABLED
     SECURITY_ENABLED = False
+    
+    # إيقاف المهام الدورية
+    periodic_protection_check.stop()
+    
     save_config()
     
     embed = discord.Embed(
-        title="🔓 تم إيقاف الحماية الشديدة",
-        description="الرتب والرومات الآن غير محمية",
+        title="🔓 تم إيقاف الحماية المباشرة",
+        description="النظام متوقف عن المراقبة",
         color=discord.Color.red()
     )
     await ctx.send(embed=embed)
@@ -950,72 +1055,72 @@ async def إيقاف(ctx):
 @الحماية.command()
 async def الحالة(ctx):
     embed = discord.Embed(
-        title="📊 حالة الحماية الشديدة",
+        title="📊 حالة الحماية المباشرة",
         color=discord.Color.blue()
     )
-    embed.add_field(name="🛡️ الحماية الشديدة", value="✅ مفعلة" if SECURITY_ENABLED else "❌ معطلة", inline=True)
-    embed.add_field(name="🎖️ حماية الرتب", value="✅ مفعلة" if ANTI_ROLE_EDIT_ENABLED else "❌ معطلة", inline=True)
-    embed.add_field(name="📁 حماية الرومات", value="✅ مفعلة" if ANTI_CHANNEL_EDIT_ENABLED else "❌ معطلة", inline=True)
-    embed.add_field(name="💣 Anti-Nuke", value="✅ مفعل" if ANTI_NUKE_ENABLED else "❌ معطل", inline=True)
-    embed.add_field(name="👥 أعضاء الوايت ليست", value=str(len(WHITELIST_USERS)), inline=True)
-    embed.add_field(name="🎖️ رتب الوايت ليست", value=str(len(WHITELIST_ROLES)), inline=True)
+    embed.add_field(name="🛡️ الحماية المباشرة", value="✅ مفعلة" if SECURITY_ENABLED else "❌ معطلة", inline=True)
+    embed.add_field(name="🎖️ مراقبة الرتب", value="✅ مفعلة" if ANTI_ROLE_EDIT_ENABLED else "❌ معطلة", inline=True)
+    embed.add_field(name="📁 مراقبة الرومات", value="✅ مفعلة" if ANTI_CHANNEL_EDIT_ENABLED else "❌ معطلة", inline=True)
+    embed.add_field(name="⚡ الحظر الفوري", value="✅ مفعل" if INSTANT_BAN else "❌ معطل", inline=True)
+    embed.add_field(name="🔄 الاستعادة", value="✅ مفعلة" if AUTO_RESTORE else "❌ معطلة", inline=True)
+    embed.add_field(name="📊 التعديلات المكتشفة", value=str(len(detected_changes)), inline=True)
     
-    # إحصائيات الحماية
-    roles_protected = len([r for r in ctx.guild.roles if not r.is_default()])
-    channels_protected = len(ctx.guild.channels)
+    # إحصائيات السيرفر
+    roles_count = len(protected_roles.get(ctx.guild.id, set()))
+    channels_count = len(protected_channels.get(ctx.guild.id, set()))
     
-    embed.add_field(name="🎖️ الرتب المحمية", value=str(roles_protected), inline=True)
-    embed.add_field(name="📁 الرومات المحمية", value=str(channels_protected), inline=True)
-    embed.add_field(name="⚖️ العقوبة", value="حظر فوري", inline=True)
+    embed.add_field(name="🎖️ الرتب المراقبة", value=str(roles_count), inline=True)
+    embed.add_field(name="📁 الرومات المراقبة", value=str(channels_count), inline=True)
+    embed.add_field(name="👥 المعفيون", value=str(len(WHITELIST_USERS) + len(WHITELIST_ROLES)), inline=True)
     
-    embed.set_footer(text="التعديل على الرتب/الرومات = حظر فوري + إزالة رتب")
+    embed.set_footer(text="النظام يعمل بدون صلاحيات Audit Logs")
     await ctx.send(embed=embed)
 
 @الحماية.command()
-async def قائمة_الحماية(ctx):
-    """عرض قائمة الرتب والرومات المحمية"""
+async def التعديلات(ctx):
+    """عرض التعديلات المكتشفة"""
+    if not detected_changes:
+        embed = discord.Embed(
+            title="✅ لا توجد تعديلات",
+            description="لم يتم اكتشاف أي تعديلات غير مصرح بها",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    # عرض آخر 5 تعديلات
+    recent_changes = detected_changes[-5:]
+    
     embed = discord.Embed(
-        title="📋 قائمة المحمي في السيرفر",
-        description=f"سيرفر: {ctx.guild.name}",
-        color=discord.Color.blue()
+        title="📋 آخر التعديلات المكتشفة",
+        description=f"إجمالي التعديلات: {len(detected_changes)}",
+        color=discord.Color.orange()
     )
     
-    # الرتب المحمية
-    protected_roles_list = [r for r in ctx.guild.roles if not r.is_default()]
-    if protected_roles_list:
-        roles_text = "\n".join([f"• {role.name}" for role in protected_roles_list[:10]])
-        if len(protected_roles_list) > 10:
-            roles_text += f"\n• ... و {len(protected_roles_list) - 10} رتبة أخرى"
-        embed.add_field(name="🎖️ الرتب المحمية", value=roles_text, inline=False)
+    for change in reversed(recent_changes):
+        timestamp = datetime.datetime.fromisoformat(change["timestamp"]).strftime("%H:%M")
+        embed.add_field(
+            name=f"🕒 {timestamp} - {change['change_type']}",
+            value=f"**المستخدم:** {change['member']}\n**السيرفر:** {change['guild']}\n**الهدف:** {change['target'] or 'غير معروف'}",
+            inline=False
+        )
     
-    # الرومات المحمية
-    protected_channels_list = list(ctx.guild.channels)
-    if protected_channels_list:
-        channels_text = "\n".join([f"• #{channel.name}" for channel in protected_channels_list[:10]])
-        if len(protected_channels_list) > 10:
-            channels_text += f"\n• ... و {len(protected_channels_list) - 10} روم آخر"
-        embed.add_field(name="📁 الرومات المحمية", value=channels_text, inline=False)
+    embed.set_footer(text="يعرض آخر 5 تعديلات فقط")
+    await ctx.send(embed=embed)
+
+@الحماية.command()
+async def تحديث(ctx):
+    """إعادة تهيئة الحماية"""
+    await initialize_guild_protection(ctx.guild)
     
-    # الوايت ليست
-    whitelist_users = []
-    for user_id in WHITELIST_USERS:
-        user = ctx.guild.get_member(user_id)
-        if user:
-            whitelist_users.append(user.mention)
+    embed = discord.Embed(
+        title="🔄 تم تحديث الحماية",
+        description=f"تم إعادة تهيئة الحماية لسيرفر **{ctx.guild.name}**",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="🎖️ الرتب المراقبة", value=str(len(protected_roles.get(ctx.guild.id, set()))), inline=True)
+    embed.add_field(name="📁 الرومات المراقبة", value=str(len(protected_channels.get(ctx.guild.id, set()))), inline=True)
     
-    whitelist_roles = []
-    for role_id in WHITELIST_ROLES:
-        role = ctx.guild.get_role(role_id)
-        if role:
-            whitelist_roles.append(role.name)
-    
-    if whitelist_users:
-        embed.add_field(name="👥 أعضاء الوايت ليست", value="\n".join(whitelist_users), inline=True)
-    
-    if whitelist_roles:
-        embed.add_field(name="🎖️ رتب الوايت ليست", value="\n".join(whitelist_roles), inline=True)
-    
-    embed.set_footer(text="فقط المالك والوايت ليست يمكنهم التعديل")
     await ctx.send(embed=embed)
 
 @الحماية.group()
@@ -1023,40 +1128,36 @@ async def وايت_ليست(ctx):
     if ctx.invoked_subcommand is None:
         embed = discord.Embed(
             title="👥 إدارة الوايت ليست",
-            description="إدارة القائمة البيضاء - الأعضاء والرتب المعفاة من الحماية",
+            description="الأعضاء والرتب المعفاة من الحماية",
             color=discord.Color.blue()
         )
         embed.add_field(
             name="الأوامر",
-            value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`\n• `!الحماية وايت_ليست إزالة_عضو @user`\n• `!الحماية وايت_ليست إزالة_رتبة @role`\n• `!الحماية وايت_ليست القائمة`",
+            value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إزالة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`\n• `!الحماية وايت_ليست إزالة_رتبة @role`\n• `!الحماية وايت_ليست القائمة`",
             inline=False
         )
         await ctx.send(embed=embed)
 
 @وايت_ليست.command()
 async def إضافة_عضو(ctx, member: discord.Member):
-    """إضافة عضو إلى الوايت ليست"""
     WHITELIST_USERS.add(member.id)
     save_config()
     
     embed = discord.Embed(
         title="✅ تمت الإضافة",
-        description=f"{member.mention} الآن معفي من جميع أنظمة الحماية",
+        description=f"{member.mention} الآن معفي من الحماية",
         color=discord.Color.green()
     )
-    embed.add_field(name="⚠️ تحذير", value="هذا العضو يمكنه الآن تعديل الرتب والرومات بحرية", inline=False)
     await ctx.send(embed=embed)
 
 @وايت_ليست.command()
 async def إزالة_عضو(ctx, member: discord.Member):
-    """إزالة عضو من الوايت ليست"""
     if member.id in WHITELIST_USERS:
         WHITELIST_USERS.remove(member.id)
         save_config()
-        
         embed = discord.Embed(
             title="✅ تمت الإزالة",
-            description=f"{member.mention} لم يعد معفي من الحماية",
+            description=f"{member.mention} لم يعد معفي",
             color=discord.Color.green()
         )
     else:
@@ -1065,42 +1166,6 @@ async def إزالة_عضو(ctx, member: discord.Member):
             description=f"{member.mention} ليس في الوايت ليست",
             color=discord.Color.red()
         )
-    
-    await ctx.send(embed=embed)
-
-@وايت_ليست.command()
-async def إضافة_رتبة(ctx, role: discord.Role):
-    """إضافة رتبة إلى الوايت ليست"""
-    WHITELIST_ROLES.add(role.id)
-    save_config()
-    
-    embed = discord.Embed(
-        title="✅ تمت الإضافة",
-        description=f"رتبة **{role.name}** الآن معفاة من جميع أنظمة الحماية",
-        color=discord.Color.green()
-    )
-    embed.add_field(name="👥 الأعضاء المتأثرون", value=f"جميع الأعضاء الذين لديهم رتبة {role.name} معفيون", inline=False)
-    await ctx.send(embed=embed)
-
-@وايت_ليست.command()
-async def إزالة_رتبة(ctx, role: discord.Role):
-    """إزالة رتبة من الوايت ليست"""
-    if role.id in WHITELIST_ROLES:
-        WHITELIST_ROLES.remove(role.id)
-        save_config()
-        
-        embed = discord.Embed(
-            title="✅ تمت الإزالة",
-            description=f"رتبة **{role.name}** لم تعد معفاة من الحماية",
-            color=discord.Color.green()
-        )
-    else:
-        embed = discord.Embed(
-            title="❌ غير موجود",
-            description=f"رتبة **{role.name}** ليست في الوايت ليست",
-            color=discord.Color.red()
-        )
-    
     await ctx.send(embed=embed)
 
 @وايت_ليست.command()
@@ -1108,42 +1173,36 @@ async def القائمة(ctx):
     """عرض قائمة الوايت ليست"""
     embed = discord.Embed(
         title="📋 قائمة الوايت ليست",
-        description="الأعضاء والرتب المعفاة من الحماية",
         color=discord.Color.blue()
     )
     
-    # الأعضاء المعفيون
-    whitelist_members = []
+    # الأعضاء
+    members_list = []
     for user_id in WHITELIST_USERS:
         member = ctx.guild.get_member(user_id)
         if member:
-            whitelist_members.append(f"• {member.mention}")
-        else:
-            whitelist_members.append(f"• <@{user_id}> (غير موجود في السيرفر)")
+            members_list.append(f"• {member.mention}")
     
-    if whitelist_members:
-        embed.add_field(name="👥 الأعضاء المعفيون", value="\n".join(whitelist_members), inline=False)
+    if members_list:
+        embed.add_field(name="👥 الأعضاء", value="\n".join(members_list), inline=False)
     else:
-        embed.add_field(name="👥 الأعضاء المعفيون", value="لا يوجد أعضاء معفيون", inline=False)
+        embed.add_field(name="👥 الأعضاء", value="لا يوجد أعضاء", inline=False)
     
-    # الرتب المعفاة
-    whitelist_roles_list = []
+    # الرتب
+    roles_list = []
     for role_id in WHITELIST_ROLES:
         role = ctx.guild.get_role(role_id)
         if role:
-            whitelist_roles_list.append(f"• {role.name}")
-        else:
-            whitelist_roles_list.append(f"• <@&{role_id}> (غير موجودة في السيرفر)")
+            roles_list.append(f"• {role.name}")
     
-    if whitelist_roles_list:
-        embed.add_field(name="🎖️ الرتب المعفاة", value="\n".join(whitelist_roles_list), inline=False)
+    if roles_list:
+        embed.add_field(name="🎖️ الرتب", value="\n".join(roles_list), inline=False)
     else:
-        embed.add_field(name="🎖️ الرتب المعفاة", value="لا يوجد رتب معفاة", inline=False)
+        embed.add_field(name="🎖️ الرتب", value="لا يوجد رتب", inline=False)
     
-    embed.set_footer(text="هؤلاء يمكنهم تعديل الرتب والرومات بحرية")
     await ctx.send(embed=embed)
 
-# ================== 1️⃣4️⃣ OTHER COMMANDS ==================
+# ================== 1️⃣2️⃣ OTHER COMMANDS ==================
 @bot.command(name="مسح", aliases=["حذف", "clear", "purge"])
 @commands.has_permissions(manage_messages=True)
 async def clear_messages(ctx, amount: int = 10):
@@ -1261,7 +1320,7 @@ async def leave_voice(ctx):
         )
         await ctx.send(embed=embed)
 
-# ================== 1️⃣5️⃣ BACKUP SYSTEM ==================
+# ================== 1️⃣3️⃣ BACKUP SYSTEM ==================
 def create_backup(reason="auto"):
     if not BACKUP_ENABLED:
         return
@@ -1288,25 +1347,25 @@ async def auto_backup():
     if BACKUP_ENABLED:
         create_backup("auto")
 
-# ================== 1️⃣6️⃣ HELP COMMAND ==================
+# ================== 1️⃣4️⃣ HELP COMMAND ==================
 @bot.command(name="مساعدة", aliases=["help", "اوامر"])
 async def help_command(ctx):
     """عرض جميع الأوامر المتاحة"""
     embed = discord.Embed(
-        title="🛡️ Security BartX - الأوامر المتاحة",
-        description="نظام حماية شديد يحمي جميع الرتب والرومات",
+        title="🛡️ Security BartX - الحماية المباشرة",
+        description="نظام حماية يراقب التغييرات مباشرة بدون Audit Logs",
         color=discord.Color.dark_red()
     )
     
     embed.add_field(
-        name="🚨 أوامر الحماية الشديدة",
-        value="• `!الحماية` - معلومات النظام\n• `!الحماية تشغيل/إيقاف` - تشغيل/إيقاف\n• `!الحماية الحالة` - عرض الحالة\n• `!الحماية قائمة_الحماية` - عرض المحمي",
+        name="🚨 أوامر الحماية",
+        value="• `!الحماية` - معلومات النظام\n• `!الحماية تشغيل/إيقاف` - تشغيل/إيقاف\n• `!الحماية الحالة` - عرض الحالة\n• `!الحماية التعديلات` - التعديلات المكتشفة\n• `!الحماية تحديث` - تحديث الحماية",
         inline=False
     )
     
     embed.add_field(
         name="👥 إدارة الوايت ليست",
-        value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إزالة_عضو @user`\n• `!الحماية وايت_ليست إضافة_رتبة @role`\n• `!الحماية وايت_ليست إزالة_رتبة @role`\n• `!الحماية وايت_ليست القائمة`",
+        value="• `!الحماية وايت_ليست إضافة_عضو @user`\n• `!الحماية وايت_ليست إزالة_عضو @user`\n• `!الحماية وايت_ليست القائمة`",
         inline=False
     )
     
@@ -1324,14 +1383,14 @@ async def help_command(ctx):
     
     embed.add_field(
         name="⚙️ ميزات الحماية",
-        value="• يحمي **جميع الرتب** بما فيها تحت البوت\n• يحمي **جميع الرومات** من التعديل\n• عقوبة فورية: **حظر + إزالة رتب**\n• إشعار فوري للمالك\n• فقط المالك والوايت ليست معفيون",
+        value="• **مراقبة مباشرة** بدون Audit Logs\n• **اكتشاف فوري** للتعديلات\n• **حظر فوري** للمتعدين\n• **استعادة تلقائية**\n• **إشعارات للمالك**",
         inline=False
     )
     
-    embed.set_footer(text="Security BartX Ultimate Shield v6.0 - وضع الحماية الشديد")
+    embed.set_footer(text="Security BartX Ultimate Shield v7.0 - يعمل بدون صلاحيات Audit Logs")
     await ctx.send(embed=embed)
 
-# ================== 1️⃣7️⃣ RUN ==================
+# ================== 1️⃣5️⃣ RUN ==================
 if __name__ == "__main__":
     try:
         keep_alive()
@@ -1344,7 +1403,8 @@ if __name__ == "__main__":
             exit(1)
         
         print("🤖 جاري تشغيل البوت...")
-        print("🚨 وضع الحماية الشديد مفعل - يحمي جميع الرتب والرومات")
+        print("🚨 وضع الحماية المباشر مفعل - لا يحتاج إلى Audit Logs")
+        print("✅ النظام يراقب التغييرات مباشرة")
         bot.run(token)
         
     except Exception as e:
